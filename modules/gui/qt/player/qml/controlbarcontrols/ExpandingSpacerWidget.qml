@@ -18,6 +18,8 @@
 import QtQuick 2.11
 import QtQuick.Templates 2.4 as T
 
+import org.videolan.vlc 0.1
+
 import "qrc:///widgets/" as Widgets
 import "qrc:///style/"
 
@@ -33,12 +35,17 @@ Item {
 
     readonly property real minimumWidth: 0
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.ButtonStandard
+    }
+
     T.Label {
         id: spacetext
         anchors.centerIn: parent
 
         text: VLCIcons.space
-        color: VLCStyle.colors.buttonText
+        color: theme.fg.secondary
         visible: paintOnly
 
         font.pixelSize: VLCStyle.icon_toolbar

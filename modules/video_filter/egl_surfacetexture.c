@@ -327,8 +327,15 @@ error:
     return VLC_EGENERIC;
 }
 
-static int Open(vlc_gl_t *gl, unsigned width, unsigned height)
+static int Open(vlc_gl_t *gl, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
+    if (gl_cfg->need_alpha)
+    {
+        msg_Err(gl, "Cannot support alpha yet");
+        return VLC_ENOTSUP;
+    }
+
     if (gl->device == NULL || gl->device->type != VLC_DECODER_DEVICE_AWINDOW)
     {
         msg_Err(gl, "Wrong decoder device");
@@ -434,8 +441,7 @@ error1:
 vlc_module_begin()
     set_shortname( N_("egl_surfacetexture") )
     set_description( N_("EGL Android SurfaceTexture offscreen opengl provider") )
-    set_capability( "opengl es2 offscreen", 100)
+    set_callback_opengl_es2_offscreen(Open, 100)
 
     add_shortcut( "egl_surfacetexture" )
-    set_callback( Open )
 vlc_module_end()

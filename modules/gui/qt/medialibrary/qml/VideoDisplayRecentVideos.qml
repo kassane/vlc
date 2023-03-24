@@ -47,9 +47,9 @@ FocusScope {
 
     // Functions
 
-    function _actionAtIndex(index) {
+    function _play(id) {
+        MediaLib.addAndPlay( id, [":restore-playback-pos=2"] )
         g_mainDisplay.showPlayer()
-        MediaLib.addAndPlay( model.getIdForIndexes(index), [":restore-playback-pos=2"] )
     }
 
     // Childs
@@ -60,6 +60,11 @@ FocusScope {
         model: listView.model
 
         showPlayAsAudioAction: true
+    }
+
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.View
     }
 
     Column {
@@ -75,6 +80,7 @@ FocusScope {
             // NOTE: Setting this to listView.visible seems to causes unnecessary implicitHeight
             //       calculations in the Column parent.
             visible: listView.count > 0
+            color: theme.fg.primary
         }
 
         Widgets.KeyNavigableListView {
@@ -95,7 +101,8 @@ FocusScope {
 
             focus: true
 
-            backgroundColor: VLCStyle.colors.bg
+            // NOTE: We want a gentle fade at the beginning / end of the history.
+            enableFade: true
 
             Navigation.parentItem: root
 
@@ -151,19 +158,21 @@ FocusScope {
 
                 function play() {
                     if (model.id !== undefined) {
-                        g_mainDisplay.showPlayer()
-                        MediaLib.addAndPlay( model.id, [":restore-playback-pos=2"] )
+                        root._play(model.id)
                     }
                 }
             }
 
-            onActionAtIndex: root._actionAtIndex(index)
+            onActionAtIndex: {
+                root._play(model.getIdForIndex(index))
+            }
         }
 
         Widgets.SubtitleLabel {
             id: subtitleLabel
 
             visible: text !== ""
+            color: theme.fg.primary
         }
     }
 }

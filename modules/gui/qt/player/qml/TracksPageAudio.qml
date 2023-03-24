@@ -52,7 +52,7 @@ TracksPage {
 
             text: I18n.qtr("Audio track synchronization")
 
-            color: "white"
+            color: root.colorContext.fg.primary
         }
 
         RowLayout {
@@ -67,10 +67,10 @@ TracksPage {
 
                 text: I18n.qtr("Audio track delay")
 
-                color: "white"
+                color: root.colorContext.fg.primary
             }
 
-            Widgets.TransparentSpinBox {
+            Widgets.SpinBoxExt {
                 id: spinBox
 
                 property bool update: false
@@ -79,6 +79,7 @@ TracksPage {
 
                 stepSize: 50
                 from: -10000
+                to: 10000
 
                 textFromValue: root.textFromValue
                 valueFromText: root.valueFromText

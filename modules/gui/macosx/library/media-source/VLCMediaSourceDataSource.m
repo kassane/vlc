@@ -28,10 +28,12 @@
 #import "extensions/NSString+Helpers.h"
 
 #import "library/VLCInputItem.h"
-#import "library/VLCLibraryWindow.h"
+#import "library/VLCInputNodePathControl.h"
+#import "library/VLCInputNodePathControlItem.h"
 #import "library/VLCLibraryNavigationStack.h"
 #import "library/VLCLibraryTableCellView.h"
 #import "library/VLCLibraryUIUnits.h"
+#import "library/VLCLibraryWindow.h"
 
 #import "main/VLCMain.h"
 
@@ -50,9 +52,8 @@
 - (void)setNodeToDisplay:(nonnull VLCInputNode*)nodeToDisplay
 {
     NSAssert(nodeToDisplay, @"Nil node to display, will not set");
-    
     _nodeToDisplay = nodeToDisplay;
-    [self.displayedMediaSource preparseInputNodeWithinTree:_nodeToDisplay];
+    [self reloadData];
 }
 
 - (void)setupViews
@@ -201,9 +202,12 @@
     VLCInputItem *childRootInput = node.inputItem;
 
     if (childRootInput.inputType == ITEM_TYPE_DIRECTORY || childRootInput.inputType == ITEM_TYPE_NODE) {
-        self.pathControl.URL = [NSURL URLWithString:[self.pathControl.URL.path stringByAppendingPathComponent:[childRootInput.name stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]]];
+        VLCInputNodePathControlItem *nodePathItem = [[VLCInputNodePathControlItem alloc] initWithInputNode:node];
+        [self.pathControl appendInputNodePathControlItem:nodePathItem];
+
+        [self.displayedMediaSource preparseInputNodeWithinTree:node];
         self.nodeToDisplay = node;
-        [self reloadData];
+
         [[VLCMain sharedInstance].libraryWindow.navigationStack appendCurrentLibraryState];
     } else if (childRootInput.inputType == ITEM_TYPE_FILE && allowPlayback) {
         [[[VLCMain sharedInstance] playlistController] addInputItem:childRootInput.vlcInputItem atPosition:-1 startPlayback:YES];

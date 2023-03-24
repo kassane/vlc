@@ -257,7 +257,7 @@ static int Open(vlc_object_t *obj)
         end = strchr(dst, ']');
 
         if (end != NULL)
-            *(end++) = '\0';
+            ++end;
     } else {
         dhost = dst;
         end = strchr(dst, ':');
@@ -265,7 +265,7 @@ static int Open(vlc_object_t *obj)
 
     if (end != NULL && *end == ':') {
         *(end++) = '\0';
-        dport = atoi(&end[1]);
+        dport = atoi(end);
     }
 
     int fd = net_ConnectDgram(stream, dhost, dport, -1, IPPROTO_UDP);

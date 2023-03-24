@@ -385,8 +385,15 @@ static void Close( vlc_gl_t *gl )
     vlc_egl_display_Delete(sys->vlc_display);
 }
 
-static int Open(vlc_gl_t *gl, unsigned width, unsigned height)
+static int Open(vlc_gl_t *gl, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
+    if (gl_cfg->need_alpha)
+    {
+        msg_Err(gl, "Cannot support alpha yet");
+        return VLC_ENOTSUP;
+    }
+
     struct vlc_gl_pbuffer *sys = vlc_obj_malloc(&gl->obj, sizeof *sys);
     if (sys == NULL)
         return VLC_ENOMEM;
@@ -482,11 +489,9 @@ vlc_module_begin()
     set_shortname( N_("egl_pbuffer") )
     set_description( N_("EGL PBuffer offscreen opengl provider") )
 #ifdef USE_OPENGL_ES2
-    set_capability( "opengl es2 offscreen", 1)
+    set_callback_opengl_es2_offscreen( Open, 1 )
 #else
-    set_capability( "opengl offscreen", 1 )
+    set_callback_opengl_offscreen( Open, 1 )
 #endif
-
     add_shortcut( "egl_pbuffer" )
-    set_callback( Open )
 vlc_module_end()

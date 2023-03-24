@@ -35,7 +35,11 @@ FocusScope {
     property var sortModel: []
 
     property Component tableHeaderDelegate: Widgets.CaptionLabel {
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+
         text: model.text || ""
+        color: parent.colorContext.fg.secondary
     }
 
     // NOTE: We want edge to edge backgrounds in our delegate and header, so we implement our own
@@ -64,19 +68,24 @@ FocusScope {
 
     property Component header: Item{}
     property Item headerItem: view.headerItem ? view.headerItem.loadedHeader : null
-    property color headerColor
+    property color headerColor: colorContext.bg.primary
     property int headerTopPadding: 0
 
     property Util.SelectableDelegateModel selectionDelegateModel
     property real rowHeight: VLCStyle.tableRow_height
 
     property real availableRowWidth: 0
-    property real _availabeRowWidthLastUpdateTime: Date.now()
-
-    readonly property real _currentAvailableRowWidth: width - leftMargin - rightMargin
 
     property Item dragItem
     property bool acceptDrop: false
+
+    // Private
+
+    property bool _ready: false
+
+    property real _availabeRowWidthLastUpdateTime: Date.now()
+
+    readonly property real _currentAvailableRowWidth: width - leftMargin - rightMargin
 
     // Aliases
 
@@ -108,8 +117,8 @@ FocusScope {
 
     property alias backgroundColor: view.backgroundColor
     property alias fadeSize: view.fadeSize
-    property alias disableBeginningFade: view.disableBeginningFade
-    property alias disableEndFade: view.disableEndFade
+    property alias enableBeginningFade: view.enableBeginningFade
+    property alias enableEndFade: view.enableEndFade
 
     property alias add:       view.add
     property alias displaced: view.displaced
@@ -120,6 +129,8 @@ FocusScope {
     property alias displayMarginEnd: view.displayMarginEnd
 
     property alias count: view.count
+
+    property alias colorContext: view.colorContext
 
     // Signals
 
@@ -140,11 +151,15 @@ FocusScope {
 
     // Events
 
-    Component.onDestruction: {
-        _qtAvoidSectionUpdate()
+    Component.onCompleted: {
+        _ready = true
+
+        availableRowWidthUpdater.enqueueUpdate()
     }
 
-    on_CurrentAvailableRowWidthChanged: availableRowWidthUpdater.enqueueUpdate()
+    Component.onDestruction: _qtAvoidSectionUpdate()
+
+    on_CurrentAvailableRowWidthChanged: if (_ready) availableRowWidthUpdater.enqueueUpdate()
 
     // Functions
 
@@ -262,8 +277,8 @@ FocusScope {
 
             width: view.width
             height: col.height
-            color: headerColor
             z: 3
+            color: root.headerColor
 
             // with inline header positioning and for `root.header` which changes it's height after loading,
             // in such cases after `root.header` completes, the ListView will try to maintain the relative contentY,
@@ -281,7 +296,7 @@ FocusScope {
                 topPadding: root.headerTopPadding
 
                 text: view.currentSection
-                color: VLCStyle.colors.accent
+                color: view.colorContext.accent
                 verticalAlignment: Text.AlignTop
                 visible: view.headerPositioning === ListView.OverlayHeader
                          && text !== ""
@@ -291,8 +306,8 @@ FocusScope {
             Column {
                 id: col
 
-                width: parent.width
-                height: implicitHeight
+                anchors.left: parent.left
+                anchors.right: parent.right
 
                 Loader {
                     id: headerLoader
@@ -317,14 +332,16 @@ FocusScope {
                     Repeater {
                         model: sortModel
                         MouseArea {
-                            height: childrenRect.height
 
+                            height: VLCStyle.dp(20, VLCStyle.scale)
                             width: VLCStyle.colWidth(modelData.size) || 1
 
-                            //Layout.alignment: Qt.AlignVCenter
-
                             Loader {
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+
                                 property var model: modelData.model
+                                readonly property ColorContext colorContext: view.colorContext
 
                                 sourceComponent: model.headerDelegate || root.tableHeaderDelegate
                             }
@@ -333,8 +350,11 @@ FocusScope {
                                 text: (root.model.sortOrder === Qt.AscendingOrder) ? "▼" : "▲"
                                 visible: root.model.sortCriteria === modelData.criteria
                                 font.pixelSize: VLCStyle.fontSize_normal
-                                color: VLCStyle.colors.accent
+                                color: root.colorContext.accent
+
                                 anchors {
+                                    top: parent.top
+                                    bottom: parent.bottom
                                     right: parent.right
                                     leftMargin: VLCStyle.margin_xsmall
                                     rightMargin: VLCStyle.margin_xsmall
@@ -367,8 +387,7 @@ FocusScope {
             topPadding: VLCStyle.margin_xsmall
 
             text: section
-
-            color: VLCStyle.colors.accent
+            color: root.colorContext.accent
         }
 
         delegate: TableViewDelegate {

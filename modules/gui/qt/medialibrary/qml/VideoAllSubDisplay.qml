@@ -91,7 +91,7 @@ VideoAll {
         if (headerItem && headerItem.focus)
             headerItem.forceActiveFocus(reason)
         else
-            _currentView.setCurrentItemFocus(reason)
+            currentItem.setCurrentItemFocus(reason)
     }
 
     // VideoAll events reimplementation
@@ -125,9 +125,8 @@ VideoAll {
             property var model: MLVideoModel { ml: MediaLib }
 
             function onAction(indexes) {
-                g_mainDisplay.showPlayer()
-
                 MediaLib.addAndPlay(model.getIdsForIndexes(indexes))
+                g_mainDisplay.showPlayer()
             }
 
             function onDoubleClick(object) { g_mainDisplay.play(MediaLib, object.id) }
@@ -153,9 +152,8 @@ VideoAll {
                 var object = model.getDataAt(index);
 
                 if (object.isVideo) {
-                    g_mainDisplay.showPlayer()
-
                     MediaLib.addAndPlay(model.getIdsForIndexes(indexes))
+                    g_mainDisplay.showPlayer()
 
                     return
                 }
@@ -236,7 +234,7 @@ VideoAll {
         Navigation.parentItem: root
 
         Navigation.downAction: function() {
-            _currentView.setCurrentItemFocus(Qt.TabFocusReason);
+            currentItem.setCurrentItemFocus(Qt.TabFocusReason)
         }
 
         onImplicitHeightChanged: {

@@ -117,11 +117,6 @@ typedef struct vout_thread_sys_t
     } displayed;
 
     struct {
-        vlc_tick_t  last;
-        vlc_tick_t  timestamp;
-    } step;
-
-    struct {
         bool        is_on;
         vlc_tick_t  date;
     } pause;
@@ -168,6 +163,8 @@ typedef struct vout_thread_sys_t
         vout_chrono_t static_filter;
         vout_chrono_t render;         /**< picture render time estimator */
     } chrono;
+
+    unsigned frame_next_count;
 
     vlc_atomic_rc_t rc;
 
@@ -872,13 +869,37 @@ static void ChangeFilters(vout_thread_sys_t *vout)
     }
 
     if (!es_format_IsSimilar(p_fmt_current, &fmt_target)) {
-        msg_Dbg(&vout->obj, "Adding a filter to compensate for format changes");
-        if (filter_chain_AppendConverter(sys->filter.chain_interactive,
-                                         &fmt_target) != 0) {
-            msg_Err(&vout->obj, "Failed to compensate for the format changes, removing all filters");
-            DelAllFilterCallbacks(vout);
-            filter_chain_Reset(sys->filter.chain_static,      &fmt_target, vctx_target, &fmt_target);
-            filter_chain_Reset(sys->filter.chain_interactive, &fmt_target, vctx_target, &fmt_target);
+        /* Shallow local copy */
+        es_format_t tmp = *p_fmt_current;
+        /* Assign the same chroma to compare everything except the chroma */
+        tmp.i_codec = fmt_target.i_codec;
+        tmp.video.i_chroma = fmt_target.video.i_chroma;
+
+        int ret = VLC_EGENERIC;
+
+        bool only_chroma_changed = es_format_IsSimilar(&tmp, &fmt_target);
+        if (only_chroma_changed)
+        {
+            msg_Dbg(&vout->obj, "Changing vout format to %4.4s",
+                                (const char *) &p_fmt_current->video.i_chroma);
+            /* Only the chroma changed, request the vout to update the format */
+            ret = vout_SetDisplayFormat(sys->display, &p_fmt_current->video,
+                                        vctx_current);
+            if (ret != VLC_SUCCESS)
+                msg_Dbg(&vout->obj, "Changing vout format to %4.4s failed",
+                        (const char *) &p_fmt_current->video.i_chroma);
+        }
+
+        if (ret != VLC_SUCCESS)
+        {
+            msg_Dbg(&vout->obj, "Adding a filter to compensate for format changes");
+            if (filter_chain_AppendConverter(sys->filter.chain_interactive,
+                                             &fmt_target) != 0) {
+                msg_Err(&vout->obj, "Failed to compensate for the format changes, removing all filters");
+                DelAllFilterCallbacks(vout);
+                filter_chain_Reset(sys->filter.chain_static,      &fmt_target, vctx_target, &fmt_target);
+                filter_chain_Reset(sys->filter.chain_interactive, &fmt_target, vctx_target, &fmt_target);
+            }
         }
     }
 
@@ -1390,7 +1411,7 @@ static int DisplayNextFrame(vout_thread_sys_t *sys)
         sys->displayed.current = next;
     }
 
-    if (!sys->displayed.current)
+    if (!next)
         return VLC_EGENERIC;
 
     return RenderPicture(sys, true);
@@ -1399,6 +1420,13 @@ static int DisplayNextFrame(vout_thread_sys_t *sys)
 static bool UpdateCurrentPicture(vout_thread_sys_t *sys)
 {
     assert(sys->clock);
+
+    if (sys->frame_next_count > 0)
+    {
+        if (DisplayNextFrame(sys) == VLC_SUCCESS)
+            --sys->frame_next_count;
+        return false;
+    }
 
     if (sys->displayed.current == NULL)
     {
@@ -1503,10 +1531,7 @@ void vout_ChangePause(vout_thread_t *vout, bool is_paused, vlc_tick_t date)
 
     if (sys->pause.is_on)
         FilterFlush(sys, false);
-    else {
-        sys->step.timestamp = VLC_TICK_INVALID;
-        sys->step.last      = VLC_TICK_INVALID;
-    }
+
     sys->pause.is_on = is_paused;
     sys->pause.date  = date;
     vout_control_Release(&sys->control);
@@ -1525,9 +1550,6 @@ static void vout_FlushUnlocked(vout_thread_sys_t *vout, bool below,
                                vlc_tick_t date)
 {
     vout_thread_sys_t *sys = vout;
-
-    sys->step.timestamp = VLC_TICK_INVALID;
-    sys->step.last      = VLC_TICK_INVALID;
 
     FilterFlush(vout, false); /* FIXME too much */
 
@@ -1574,27 +1596,16 @@ void vout_Flush(vout_thread_t *vout, vlc_tick_t date)
         vlc_tracer_TraceEvent(tracer, "RENDER", sys->str_id, "flushed");
 }
 
-void vout_NextPicture(vout_thread_t *vout, vlc_tick_t *duration)
+void vout_NextPicture(vout_thread_t *vout)
 {
     vout_thread_sys_t *sys = VOUT_THREAD_TO_SYS(vout);
     assert(!sys->dummy);
-    *duration = 0;
 
     vout_control_Hold(&sys->control);
-    if (sys->step.last == VLC_TICK_INVALID)
-        sys->step.last = sys->displayed.timestamp;
 
-    if (DisplayNextFrame(sys) == VLC_SUCCESS) {
-        sys->step.timestamp = sys->displayed.timestamp;
+    sys->frame_next_count++;
 
-        if (sys->step.last != VLC_TICK_INVALID &&
-            sys->step.timestamp > sys->step.last) {
-            *duration = sys->step.timestamp - sys->step.last;
-            sys->step.last = sys->step.timestamp;
-            /* TODO advance subpicture by the duration ... */
-        }
-    }
-    vout_control_Release(&sys->control);
+    vout_control_ReleaseAndWake(&sys->control);
 }
 
 void vout_ChangeDelay(vout_thread_t *vout, vlc_tick_t delay)
@@ -1726,9 +1737,6 @@ static int vout_Start(vout_thread_sys_t *vout, vlc_video_context *vctx, const vo
     sys->displayed.date          = VLC_TICK_INVALID;
     sys->displayed.timestamp     = VLC_TICK_INVALID;
     sys->displayed.is_interlaced = false;
-
-    sys->step.last               = VLC_TICK_INVALID;
-    sys->step.timestamp          = VLC_TICK_INVALID;
 
     sys->pause.is_on = false;
     sys->pause.date  = VLC_TICK_INVALID;
@@ -2056,6 +2064,7 @@ vout_thread_t *vout_Create(vlc_object_t *object)
     if (sys->splitter_name != NULL)
         var_Destroy(vout, "window");
     sys->window_enabled = false;
+    sys->frame_next_count = 0;
     vlc_mutex_init(&sys->window_lock);
 
     if (var_InheritBool(vout, "video-wallpaper"))
@@ -2189,20 +2198,25 @@ int vout_Request(const vout_configuration_t *cfg, vlc_video_context *vctx, input
     if (vout_Start(vout, vctx, cfg))
     {
         msg_Err(cfg->vout, "video output display creation failed");
-        vout_DisableWindow(vout);
-        return -1;
+        goto error_display;
     }
     atomic_store(&sys->control_is_terminated, false);
-    if (vlc_clone(&sys->thread, Thread, vout)) {
-        vout_ReleaseDisplay(vout);
-        vout_DisableWindow(vout);
-        return -1;
-    }
+    if (vlc_clone(&sys->thread, Thread, vout))
+        goto error_thread;
 
     if (input != NULL && sys->spu)
         spu_Attach(sys->spu, input);
     vout_IntfReinit(cfg->vout);
     return 0;
+
+error_thread:
+    vout_ReleaseDisplay(vout);
+error_display:
+    vout_DisableWindow(vout);
+    vlc_mutex_lock(&sys->clock_lock);
+    sys->clock = NULL;
+    vlc_mutex_unlock(&sys->clock_lock);
+    return -1;
 }
 
 vlc_decoder_device *vout_GetDevice(vout_thread_t *vout)

@@ -81,6 +81,18 @@ endif
 if HAVE_QT5_GTK
 libqt_plugin_la_CPPFLAGS += -DQT5_HAS_GTK
 endif
+if HAVE_QT5_DECLARATIVE_PRIVATE
+libqt_plugin_la_CPPFLAGS += -DQT5_DECLARATIVE_PRIVATE \
+	-I$(QT_INCLUDE_DIRECTORY)/QtCore/$(QT_VERSION) \
+	-I$(QT_INCLUDE_DIRECTORY)/QtCore/$(QT_VERSION)/QtCore \
+	-I$(QT_INCLUDE_DIRECTORY)/QtGui/$(QT_VERSION) \
+	-I$(QT_INCLUDE_DIRECTORY)/QtGui/$(QT_VERSION)/QtGui \
+	-I$(QT_INCLUDE_DIRECTORY)/QtQml/$(QT_VERSION) \
+	-I$(QT_INCLUDE_DIRECTORY)/QtQml/$(QT_VERSION)/QtQml \
+	-I$(QT_INCLUDE_DIRECTORY)/QtQuick/$(QT_VERSION) \
+	-I$(QT_INCLUDE_DIRECTORY)/QtQuick/$(QT_VERSION)/QtQuick
+
+endif
 
 libqt_plugin_la_SOURCES = \
 	gui/qt/qt.cpp gui/qt/qt.hpp gui/qt/plugins.hpp \
@@ -152,6 +164,10 @@ libqt_plugin_la_SOURCES = \
 	gui/qt/dialogs/playlists/playlists.cpp gui/qt/dialogs/playlists/playlists.hpp \
 	gui/qt/maininterface/compositor.hpp \
 	gui/qt/maininterface/compositor.cpp \
+	gui/qt/maininterface/compositor_common.hpp \
+	gui/qt/maininterface/compositor_common.cpp \
+	gui/qt/maininterface/compositor_accessibility.cpp \
+	gui/qt/maininterface/compositor_accessibility.hpp \
 	gui/qt/maininterface/compositor_dummy.hpp \
 	gui/qt/maininterface/compositor_dummy.cpp \
 	gui/qt/maininterface/interface_window_handler.cpp \
@@ -246,6 +262,8 @@ libqt_plugin_la_SOURCES = \
 	gui/qt/network/standardpathmodel.cpp \
 	gui/qt/network/standardpathmodel.hpp \
 	gui/qt/style/qtthemeprovider.hpp \
+	gui/qt/style/colorcontext.cpp \
+	gui/qt/style/colorcontext.hpp \
 	gui/qt/style/systempalette.cpp \
 	gui/qt/style/systempalette.hpp \
 	gui/qt/style/defaultthemeproviders.hpp \
@@ -426,6 +444,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	gui/qt/dialogs/toolbar/controlbar_profile_model.moc.cpp \
 	gui/qt/dialogs/playlists/playlists.moc.cpp \
 	gui/qt/maininterface/compositor.moc.cpp \
+	gui/qt/maininterface/compositor_common.moc.cpp \
 	gui/qt/maininterface/compositor_dummy.moc.cpp \
 	gui/qt/maininterface/interface_window_handler.moc.cpp \
 	gui/qt/maininterface/mainctx.moc.cpp \
@@ -464,6 +483,7 @@ nodist_libqt_plugin_la_SOURCES = \
 	gui/qt/network/networkmediamodel.moc.cpp \
 	gui/qt/network/servicesdiscoverymodel.moc.cpp \
 	gui/qt/network/standardpathmodel.moc.cpp \
+	gui/qt/style/colorcontext.moc.cpp \
 	gui/qt/style/systempalette.moc.cpp \
 	gui/qt/player/input_models.moc.cpp \
 	gui/qt/player/player_controller.moc.cpp \
@@ -819,7 +839,6 @@ libqt_plugin_la_QML = \
 	gui/qt/dialogs/dialogs/qml/Dialogs.qml \
 	gui/qt/dialogs/dialogs/qml/ModalDialog.qml \
 	gui/qt/dialogs/dialogs/qml/WindowDialog.qml \
-	gui/qt/dialogs/help/qml/About.qml \
 	gui/qt/dialogs/toolbar/qml/EditorDNDDelegate.qml \
 	gui/qt/dialogs/toolbar/qml/EditorDNDView.qml\
 	gui/qt/dialogs/toolbar/qml/EditorDummyButton.qml \
@@ -829,6 +848,7 @@ libqt_plugin_la_QML = \
 	gui/qt/dialogs/toolbar/qml/ToolbarEditorButtonList.qml \
 	gui/qt/maininterface/qml/BannerSources.qml \
 	gui/qt/maininterface/qml/MainInterface.qml \
+	gui/qt/maininterface/qml/MainViewLoader.qml \
 	gui/qt/maininterface/qml/MainDisplay.qml \
 	gui/qt/maininterface/qml/MainGridView.qml \
 	gui/qt/maininterface/qml/MainTableView.qml \
@@ -881,7 +901,6 @@ libqt_plugin_la_QML = \
 	gui/qt/network/qml/NetworkAddressbar.qml \
 	gui/qt/network/qml/NetworkCustomCover.qml \
 	gui/qt/network/qml/NetworkGridItem.qml \
-	gui/qt/network/qml/NetworkListItem.qml \
 	gui/qt/network/qml/NetworkThumbnailItem.qml \
 	gui/qt/network/qml/ServicesHomeDisplay.qml \
 	gui/qt/network/qml/ServicesManage.qml \
@@ -897,13 +916,10 @@ libqt_plugin_la_QML = \
 	gui/qt/player/qml/PlayerBlurredBackground.qml \
 	gui/qt/player/qml/PlayerBlurredBackground.frag \
 	gui/qt/player/qml/PlayerControlLayout.qml \
-	gui/qt/player/qml/PlayerMenu.qml \
-	gui/qt/player/qml/PlayerMenuItem.qml \
 	gui/qt/player/qml/PlayerPlaylistVisibilityFSM.qml \
 	gui/qt/player/qml/ResumeDialog.qml \
 	gui/qt/player/qml/SliderBar.qml \
 	gui/qt/player/qml/TopBar.qml \
-	gui/qt/player/qml/TrackInfo.qml \
 	gui/qt/player/qml/TracksMenu.qml \
 	gui/qt/player/qml/TracksPage.qml \
 	gui/qt/player/qml/TracksPageAudio.qml \
@@ -919,7 +935,6 @@ libqt_plugin_la_QML = \
 	gui/qt/player/qml/controlbarcontrols/ChapterNextButton.qml \
 	gui/qt/player/qml/controlbarcontrols/ChapterPreviousButton.qml \
 	gui/qt/player/qml/controlbarcontrols/ControlButtonPopup.qml \
-	gui/qt/player/qml/controlbarcontrols/ControlCheckButton.qml \
 	gui/qt/player/qml/controlbarcontrols/DvdMenuButton.qml \
 	gui/qt/player/qml/controlbarcontrols/ExpandingSpacerWidget.qml \
 	gui/qt/player/qml/controlbarcontrols/ExtendedSettingsButton.qml \
@@ -961,7 +976,6 @@ libqt_plugin_la_QML = \
 	gui/qt/playlist/qml/PlaylistToolbar.qml \
 	gui/qt/playlist/qml/PlaylistDetachedWindow.qml \
 	gui/qt/style/AcrylicController.qml \
-	gui/qt/style/VLCColors.qml \
 	gui/qt/style/VLCIcons.qml \
 	gui/qt/style/VLCStyle.qml \
 	gui/qt/style/qmldir \
@@ -1012,16 +1026,14 @@ libqt_plugin_la_QML = \
 	gui/qt/widgets/qml/KeyNavigableListView.qml \
 	gui/qt/widgets/qml/KeyNavigableTableView.qml \
 	gui/qt/widgets/qml/TableViewDelegate.qml \
-	gui/qt/widgets/qml/LabelSeparator.qml \
 	gui/qt/widgets/qml/ListCoverShadow.qml \
 	gui/qt/widgets/qml/ListItem.qml \
 	gui/qt/widgets/qml/ListLabel.qml \
+	gui/qt/widgets/qml/LoaderFade.qml \
 	gui/qt/widgets/qml/LocalTabBar.qml \
 	gui/qt/widgets/qml/MediaCover.qml \
 	gui/qt/widgets/qml/SubtitleLabel.qml \
 	gui/qt/widgets/qml/MenuCaption.qml \
-	gui/qt/widgets/qml/MenuExt.qml \
-	gui/qt/widgets/qml/MenuItemExt.qml \
 	gui/qt/widgets/qml/MenuLabel.qml \
 	gui/qt/widgets/qml/MLDragItem.qml \
 	gui/qt/widgets/qml/NavigableCol.qml \
@@ -1032,15 +1044,15 @@ libqt_plugin_la_QML = \
 	gui/qt/widgets/qml/ScanProgressBar.qml \
 	gui/qt/widgets/qml/ScrollingText.qml \
 	gui/qt/widgets/qml/SearchBox.qml \
+	gui/qt/widgets/qml/Slider.qml \
 	gui/qt/widgets/qml/SortControl.qml \
 	gui/qt/widgets/qml/SpinBoxExt.qml \
 	gui/qt/widgets/qml/StackViewExt.qml \
 	gui/qt/widgets/qml/PageLoader.qml \
 	gui/qt/widgets/qml/ButtonExt.qml \
 	gui/qt/widgets/qml/TableColumns.qml \
-	gui/qt/widgets/qml/TransparentSpinBox.qml \
+	gui/qt/widgets/qml/TextFieldExt.qml \
 	gui/qt/widgets/qml/TextToolButton.qml \
-	gui/qt/widgets/qml/ToolTipArea.qml \
 	gui/qt/widgets/qml/VideoProgressBar.qml \
 	gui/qt/widgets/qml/VideoQualityLabels.qml \
 	gui/qt/widgets/qml/ListSubtitleLabel.qml \

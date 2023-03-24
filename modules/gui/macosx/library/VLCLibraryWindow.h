@@ -20,12 +20,14 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 
-#import "windows/video/VLCVideoWindowCommon.h"
+#import "windows/video/VLCFullVideoViewWindow.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class VLCControlsBarCommon;
 @class VLCDragDropView;
 @class VLCRoundedCornerTextField;
+@class VLCInputNodePathControl;
 @class VLCLibraryNavigationStack;
 @class VLCLibraryAudioViewController;
 @class VLCLibraryMediaSourceViewController;
@@ -34,7 +36,6 @@ NS_ASSUME_NONNULL_BEGIN
 @class VLCPlaylistDataSource;
 @class VLCPlaylistController;
 @class VLCPlaylistSortingMenuController;
-@class VLCFSPanelController;
 @class VLCCustomEmptyLibraryBrowseButton;
 
 typedef NS_ENUM(NSUInteger, VLCLibrarySegment) {
@@ -49,12 +50,14 @@ typedef NS_ENUM(NSUInteger, VLCViewModeSegment) {
     VLCListViewModeSegment
 };
 
-@interface VLCLibraryWindow : VLCVideoWindowCommon<NSUserInterfaceItemIdentification>
+@interface VLCLibraryWindow : VLCFullVideoViewWindow<NSUserInterfaceItemIdentification>
 
 extern const CGFloat VLCLibraryWindowMinimalWidth;
 extern const CGFloat VLCLibraryWindowMinimalHeight;
 extern const NSUserInterfaceItemIdentifier VLCLibraryWindowIdentifier;
 
+@property (nonatomic, weak) IBOutlet VLCControlsBarCommon* controlsBar;
+@property (readwrite, weak) IBOutlet NSLayoutConstraint *videoViewBottomConstraint;
 @property (readwrite, weak) IBOutlet NSSegmentedControl *segmentedTitleControl;
 @property (readwrite, weak) IBOutlet NSSegmentedControl *gridVsListSegmentedControl;
 @property (readwrite, weak) IBOutlet NSSplitView *mainSplitView;
@@ -87,7 +90,7 @@ extern const NSUserInterfaceItemIdentifier VLCLibraryWindowIdentifier;
 @property (readwrite, weak) IBOutlet NSSegmentedControl *audioSegmentedControl;
 @property (readwrite, weak) IBOutlet NSView *mediaSourceView;
 @property (readwrite, weak) IBOutlet NSButton *mediaSourceHomeButton;
-@property (readwrite, weak) IBOutlet NSPathControl *mediaSourcePathControl;
+@property (readwrite, weak) IBOutlet VLCInputNodePathControl *mediaSourcePathControl;
 @property (readwrite, weak) IBOutlet NSScrollView *mediaSourceTableViewScrollView;
 @property (readwrite, weak) IBOutlet NSTableView *mediaSourceTableView;
 @property (readwrite, weak) IBOutlet NSScrollView *mediaSourceCollectionViewScrollView;
@@ -119,6 +122,8 @@ extern const NSUserInterfaceItemIdentifier VLCLibraryWindowIdentifier;
 @property (readwrite, weak) IBOutlet NSToolbarItem *segmentedTitleControlToolbarItem;
 @property (readwrite, weak) IBOutlet NSToolbarItem *librarySearchToolbarItem;
 @property (readwrite, weak) IBOutlet NSToolbarItem *togglePlaylistToolbarItem;
+@property (readwrite, weak) IBOutlet NSLayoutConstraint *splitViewBottomConstraintToBottomBar;
+@property (readwrite, weak) IBOutlet NSLayoutConstraint *splitViewBottomConstraintToSuperView;
 
 @property (nonatomic, readwrite, strong) IBOutlet NSView *emptyLibraryView;
 @property (nonatomic, readwrite, strong) IBOutlet NSImageView *placeholderImageView;
@@ -134,10 +139,12 @@ extern const NSUserInterfaceItemIdentifier VLCLibraryWindowIdentifier;
 @property (readonly) VLCPlaylistDataSource *playlistDataSource;
 @property (readonly) VLCPlaylistSortingMenuController *playlistSortingMenuController;
 @property (readonly) VLCPlaylistController *playlistController;
-@property (readonly) VLCFSPanelController *fspanel;
 
 - (void)reopenVideoView;
+- (void)disableVideoPlaybackAppearance;
 - (void)togglePlaylist;
+- (void)hideControlsBar;
+- (void)showControlsBar;
 
 - (IBAction)playlistDoubleClickAction:(id)sender;
 - (IBAction)shuffleAction:(id)sender;

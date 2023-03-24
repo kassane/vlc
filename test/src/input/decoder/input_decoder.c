@@ -26,10 +26,7 @@
 
 /* Define a builtin module for mocked parts */
 #define MODULE_NAME test_input_decoder_mock
-#define MODULE_STRING "test_input_decoder_mock"
-#undef __PLUGIN__
-
-const char vlc_module_name[] = MODULE_STRING;
+#undef VLC_DYNAMIC_PLUGIN
 
 #include "../../../libvlc/test.h"
 #include <vlc_common.h>
@@ -48,6 +45,9 @@ const char vlc_module_name[] = MODULE_STRING;
 #include <limits.h>
 
 #include "input_decoder.h"
+
+const char vlc_module_name[] = MODULE_STRING;
+
 static size_t current_scenario = 0;
 
 static vlc_cond_t player_cond = VLC_STATIC_COND;
@@ -324,10 +324,7 @@ vlc_module_begin()
 
 vlc_module_end()
 
-/* Helper typedef for vlc_static_modules */
-typedef int (*vlc_plugin_cb)(vlc_set_cb, void*);
-
-VLC_EXPORT vlc_plugin_cb vlc_static_modules[] = {
+VLC_EXPORT const vlc_plugin_cb vlc_static_modules[] = {
     VLC_SYMBOL(vlc_entry),
     NULL
 };

@@ -26,6 +26,7 @@
 
 #import "library/VLCLibraryController.h"
 #import "library/VLCLibraryModel.h"
+#import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
 
 #import "library/audio-library/VLCLibraryAudioViewController.h"
@@ -34,6 +35,9 @@
 #import "library/video-library/VLCLibraryVideoTableViewDataSource.h"
 
 #import "main/VLCMain.h"
+
+#import "windows/video/VLCVoutView.h"
+#import "windows/video/VLCMainVideoViewController.h"
 
 @implementation VLCLibraryVideoViewController
 
@@ -46,6 +50,7 @@
         [self setupTableViewDataSource];
         [self setupGridViewController];
         [self setupVideoPlaceholderView];
+        [self setupVideoLibraryViews];
 
         NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
         [notificationCenter addObserver:self
@@ -115,6 +120,25 @@
     ];
 }
 
+- (void)setupVideoLibraryViews
+{
+    _videoLibraryGroupsTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
+    _videoLibraryGroupSelectionTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
+
+    const NSEdgeInsets defaultInsets = [VLCLibraryUIUnits libraryViewScrollViewContentInsets];
+    const NSEdgeInsets scrollerInsets = [VLCLibraryUIUnits libraryViewScrollViewScrollerInsets];
+
+    _videoLibraryCollectionViewsStackViewScrollView.automaticallyAdjustsContentInsets = NO;
+    _videoLibraryCollectionViewsStackViewScrollView.contentInsets = defaultInsets;
+    _videoLibraryCollectionViewsStackViewScrollView.scrollerInsets = scrollerInsets;
+
+    _videoLibraryGroupsTableViewScrollView.automaticallyAdjustsContentInsets = NO;
+    _videoLibraryGroupsTableViewScrollView.contentInsets = defaultInsets;
+    _videoLibraryGroupsTableViewScrollView.scrollerInsets = scrollerInsets;
+    _videoLibraryGroupSelectionTableViewScrollView.automaticallyAdjustsContentInsets = NO;
+    _videoLibraryGroupSelectionTableViewScrollView.contentInsets = defaultInsets;
+    _videoLibraryGroupSelectionTableViewScrollView.scrollerInsets = scrollerInsets;
+}
 
 #pragma mark - Show the video library view
 
@@ -181,7 +205,8 @@
 
     if (_segmentedTitleControl.selectedSegment == VLCLibraryVideoSegment &&
         ((videoList.count == 0 && ![_libraryTargetView.subviews containsObject:_emptyLibraryView]) ||
-         (videoList.count > 0 && ![_libraryTargetView.subviews containsObject:_videoLibraryView]))) {
+         (videoList.count > 0 && ![_libraryTargetView.subviews containsObject:_videoLibraryView])) &&
+        _libraryWindow.videoViewController.view.hidden) {
 
         [self updatePresentedView];
     }

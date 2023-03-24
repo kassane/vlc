@@ -168,38 +168,38 @@ static const struct
     vlc_fourcc_t     i_chroma;
     enum aom_img_fmt i_chroma_id;
     uint8_t          i_bitdepth;
-    uint8_t          i_needs_hack;
+    enum aom_transfer_characteristics transfer_characteristics;
 
 } chroma_table[] =
 {
-    { VLC_CODEC_I420, AOM_IMG_FMT_I420, 8, 0 },
-    { VLC_CODEC_I422, AOM_IMG_FMT_I422, 8, 0 },
-    { VLC_CODEC_I444, AOM_IMG_FMT_I444, 8, 0 },
+    /* Transfer characteristic-dependent mappings must come first */
+    { VLC_CODEC_GBR_PLANAR, AOM_IMG_FMT_I444, 8, AOM_CICP_TC_SRGB },
+    { VLC_CODEC_GBR_PLANAR_10L, AOM_IMG_FMT_I44416, 10, AOM_CICP_TC_SRGB },
 
-    { VLC_CODEC_YV12, AOM_IMG_FMT_YV12, 8, 0 },
+    { VLC_CODEC_I420, AOM_IMG_FMT_I420, 8, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I422, AOM_IMG_FMT_I422, 8, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I444, AOM_IMG_FMT_I444, 8, AOM_CICP_TC_UNSPECIFIED },
 
-    { VLC_CODEC_GBR_PLANAR, AOM_IMG_FMT_I444, 8, 1 },
-    { VLC_CODEC_GBR_PLANAR_10L, AOM_IMG_FMT_I44416, 10, 1 },
+    { VLC_CODEC_YV12, AOM_IMG_FMT_YV12, 8, AOM_CICP_TC_UNSPECIFIED },
 
-    { VLC_CODEC_I420_10L, AOM_IMG_FMT_I42016, 10, 0 },
-    { VLC_CODEC_I422_10L, AOM_IMG_FMT_I42216, 10, 0 },
-    { VLC_CODEC_I444_10L, AOM_IMG_FMT_I44416, 10, 0 },
+    { VLC_CODEC_I420_10L, AOM_IMG_FMT_I42016, 10, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I422_10L, AOM_IMG_FMT_I42216, 10, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I444_10L, AOM_IMG_FMT_I44416, 10, AOM_CICP_TC_UNSPECIFIED },
 
-    { VLC_CODEC_I420_12L, AOM_IMG_FMT_I42016, 12, 0 },
-    { VLC_CODEC_I422_12L, AOM_IMG_FMT_I42216, 12, 0 },
-    { VLC_CODEC_I444_12L, AOM_IMG_FMT_I44416, 12, 0 },
+    { VLC_CODEC_I420_12L, AOM_IMG_FMT_I42016, 12, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I422_12L, AOM_IMG_FMT_I42216, 12, AOM_CICP_TC_UNSPECIFIED },
+    { VLC_CODEC_I444_12L, AOM_IMG_FMT_I44416, 12, AOM_CICP_TC_UNSPECIFIED },
 
-    { VLC_CODEC_I444_16L, AOM_IMG_FMT_I44416, 16, 0 },
+    { VLC_CODEC_I444_16L, AOM_IMG_FMT_I44416, 16, AOM_CICP_TC_UNSPECIFIED },
 };
 
 static vlc_fourcc_t FindVlcChroma( struct aom_image *img )
 {
-    uint8_t hack = (img->fmt & AOM_IMG_FMT_I444) && (img->tc == AOM_CICP_TC_SRGB);
-
     for( unsigned int i = 0; i < ARRAY_SIZE(chroma_table); i++ )
         if( chroma_table[i].i_chroma_id == img->fmt &&
             chroma_table[i].i_bitdepth == img->bit_depth &&
-            chroma_table[i].i_needs_hack == hack )
+            ( chroma_table[i].transfer_characteristics == AOM_CICP_TC_UNSPECIFIED ||
+              chroma_table[i].transfer_characteristics == img->tc ) )
             return chroma_table[i].i_chroma;
 
     return 0;
@@ -605,15 +605,16 @@ static block_t *Encode(encoder_t *p_enc, picture_t *p_pict)
     const aom_img_fmt_t img_fmt = p_enc->fmt_in.i_codec == VLC_CODEC_I420_10L ?
         AOM_IMG_FMT_I42016 : AOM_IMG_FMT_I420;
 
-    /* Create and initialize the aom_image */
-    if (!aom_img_wrap(&img, img_fmt, i_w, i_h, p_pict->p[0].i_pitch, p_pict->p[0].p_pixels))
+    /* Create and initialize the aom_image (use 1 and correct later to avoid getting
+       rejected for non-power of 2 pitch) */
+    if (!aom_img_wrap(&img, img_fmt, i_w, i_h, 1, p_pict->p[0].p_pixels))
     {
         AOM_ERR(p_enc, ctx, "Failed to wrap image");
         return NULL;
     }
 
-    /* Correct chroma plane offsets. */
-    for (int plane = 1; plane < p_pict->i_planes; plane++) {
+    /* Fill in real plane/stride values. */
+    for (int plane = 0; plane < p_pict->i_planes; plane++) {
         img.planes[plane] = p_pict->p[plane].p_pixels;
         img.stride[plane] = p_pict->p[plane].i_pitch;
     }

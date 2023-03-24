@@ -49,6 +49,9 @@
 #include "config/configuration.h"
 #include "modules/modules.h"
 
+/** Core module */
+VLC_DECL_MODULE_ENTRY(core);
+
 typedef struct vlc_modcap
 {
     char *name;
@@ -183,7 +186,7 @@ static vlc_plugin_t *module_InitStatic(vlc_plugin_cb entry)
     || (defined(__MACH__) && defined(HAVE_DYLIB_DYNAMIC_LOOKUP)) \
     || !defined(HAVE_DYNAMIC_PLUGINS)
 VLC_WEAK
-extern vlc_plugin_cb vlc_static_modules[];
+extern const vlc_plugin_cb vlc_static_modules[];
 
 static void module_InitStaticModules(void)
 {
@@ -723,7 +726,7 @@ void module_InitBank (void)
          * library just as another module, and for instance the configuration
          * options of core will be available in the module bank structure just
          * as for every other module. */
-        vlc_plugin_t *plugin = module_InitStatic(vlc_entry__core);
+        vlc_plugin_t *plugin = module_InitStatic(VLC_MODULE_ENTRY(core));
         if (likely(plugin != NULL))
             vlc_plugin_store(plugin);
         config_SortConfig ();

@@ -394,9 +394,6 @@ int vlc_demux_process_memory(const struct vlc_run_args *args,
 #ifdef HAVE_STATIC_MODULES
 # include <vlc_plugin.h>
 
-typedef int (*vlc_plugin_cb)(int (*)(void *, void *, int, ...), void *);
-extern vlc_plugin_cb vlc_static_modules[];
-
 #ifdef HAVE_DECODERS
 #define DECODER_PLUGINS(f) \
     f(codec_adpcm) \
@@ -480,14 +477,14 @@ extern vlc_plugin_cb vlc_static_modules[];
 # define PLUGIN_MKV(f)
 #endif
 
-#define DECL_PLUGIN(p) \
-    int vlc_entry__##p(int (*)(void *, void *, int, ...), void *);
+#define DECL_PLUGIN(p)   VLC_DECL_MODULE_ENTRY(p);
 
-#define FUNC_PLUGIN(p) \
-    vlc_entry__##p,
+#define FUNC_PLUGIN(p)   VLC_MODULE_ENTRY(p),
 
 PLUGINS(DECL_PLUGIN)
 
-__attribute__((visibility("default")))
-vlc_plugin_cb vlc_static_modules[] = { PLUGINS(FUNC_PLUGIN) NULL };
+VLC_EXPORT const vlc_plugin_cb vlc_static_modules[] = {
+    PLUGINS(FUNC_PLUGIN)
+    NULL
+};
 #endif /* HAVE_STATIC_MODULES */

@@ -95,6 +95,11 @@ FocusScope {
         }
     }
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.View
+    }
+
     //FIXME use the right xxxLabel class
     T.Label {
         anchors.centerIn: parent
@@ -104,7 +109,7 @@ FocusScope {
                   lanSection.model.count === 0)
 
         font.pixelSize: VLCStyle.fontHeight_xxlarge
-        color: root.activeFocus ? VLCStyle.colors.accent : VLCStyle.colors.text
+        color: root.activeFocus ? theme.accent : theme.fg.primary
         text: I18n.qtr("No network shares found")
     }
 
@@ -119,7 +124,7 @@ FocusScope {
         focus: true
 
         Column {
-            width: parent.width
+            width: foldersSection.width
             height: implicitHeight
 
             spacing: VLCStyle.margin_small
@@ -127,7 +132,7 @@ FocusScope {
             BrowseDeviceView {
                 id: foldersSection
 
-                width: flickable.width
+                width: root.width
                 height: contentHeight
 
                 // NOTE: We are not capping the list when filtering.
@@ -164,7 +169,7 @@ FocusScope {
             BrowseDeviceView {
                 id: deviceSection
 
-                width: flickable.width
+                width: root.width
                 height: contentHeight
 
                 maximumRows: foldersSection.maximumRows
@@ -211,7 +216,7 @@ FocusScope {
             BrowseDeviceView {
                 id: lanSection
 
-                width: flickable.width
+                width: root.width
                 height: contentHeight
 
                 maximumRows: foldersSection.maximumRows

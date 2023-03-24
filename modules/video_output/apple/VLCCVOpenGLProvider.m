@@ -506,8 +506,15 @@ static void FreeCVBuffer(picture_t *picture)
 
 @end
 
-static int Open(vlc_gl_t *gl, unsigned width, unsigned height)
+static int Open(vlc_gl_t *gl, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
+    if (gl_cfg->need_alpha)
+    {
+        msg_Err(gl, "Cannot support alpha yet");
+        return VLC_ENOTSUP;
+    }
+
     VLCCVOpenGLProvider *sys = [[VLCCVOpenGLProvider alloc] initWithGL:gl width:width height:height];
     if (sys == nil)
         return VLC_EGENERIC;;
@@ -521,10 +528,9 @@ vlc_module_begin()
     set_shortname( N_("cvpx_gl") )
     set_description( N_("OpenGL backed by CVPixelBuffer") )
 #if TARGET_OS_IPHONE
-    set_capability( "opengl es2 offscreen", 100 )
+    set_callback_opengl_es2_offscreen( Open, 100 )
 #else
-    set_capability( "opengl offscreen", 100 )
+    set_callback_opengl_offscreen( Open, 100 )
 #endif
     add_shortcut( "cvpx_gl" )
-    set_callback( Open)
 vlc_module_end()

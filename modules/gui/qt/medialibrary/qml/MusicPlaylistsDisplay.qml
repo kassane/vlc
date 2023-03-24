@@ -81,8 +81,8 @@ Widgets.PageLoader {
     function _updateHistoryPlaylist(playlist) {
         History.update(["mc", "music", "playlists", "list", {
                             "initialIndex": playlist.currentIndex,
-                            "initialId"   : playlist.parentId,
-                            "initialName" : playlist.name
+                            "parentId"   : playlist.parentId,
+                            "name" : playlist.name
                         }]);
     }
 
@@ -94,8 +94,6 @@ Widgets.PageLoader {
         id: componentAll
 
         PlaylistMediaList {
-            anchors.fill: parent
-
             isMusic: true
 
             onCurrentIndexChanged: _updateHistoryList(currentIndex)
@@ -104,7 +102,6 @@ Widgets.PageLoader {
                 History.push(["mc", "music", "playlists", "list",
                              { parentId: model.id, name: model.name }]);
 
-                stackView.currentItem.setCurrentItemFocus(reason);
             }
         }
     }
@@ -114,8 +111,6 @@ Widgets.PageLoader {
 
         PlaylistMediaDisplay {
             id: playlist
-
-            anchors.fill: parent
 
             isMusic: true
 

@@ -228,8 +228,6 @@ FocusScope {
                                                 ? -1
                                                 : root.maximumRows * nbItemPerRow
 
-            anchors.fill: parent
-
             cellWidth: VLCStyle.gridItem_network_width
             cellHeight: VLCStyle.gridItem_network_height
 
@@ -263,33 +261,44 @@ FocusScope {
         Widgets.KeyNavigableTableView {
             id: listView
 
+            // Properties
+
             readonly property int maximumCount: root.maximumRows
 
             readonly property int nbItemPerRow: 1
 
-            readonly property int _nbCols: VLCStyle.gridColumnsForWidth(listView.availableRowWidth)
+            readonly property int _nbCols: VLCStyle.gridColumnsForWidth(availableRowWidth)
 
-            readonly property int _nameColSpan: Math.max((_nbCols - 1) / 2, 1)
+            readonly property int _size: (_nbCols - 1) / 2
 
-            anchors.fill: parent
+            property var _modelSmall: [{
+                size: Math.max(2, _nbCols),
 
-            rowHeight: VLCStyle.tableCoverRow_height
+                model: ({
+                    criteria: "name",
 
-            displayMarginEnd: root.displayMarginEnd
+                    title: "name",
 
-            model: modelFilter
+                    subCriterias: [ "mrl" ],
 
-            sortModel: [{
+                    text: I18n.qtr("Name"),
+
+                    headerDelegate: artworkHeader,
+                    colDelegate: artworkColumn
+                })
+            }]
+
+            property var _modelMedium: [{
                 size: 1,
 
                 model: {
                     criteria: "artwork",
 
                     headerDelegate: artworkHeader,
-                    colDelegate   : artworkColumn
+                    colDelegate: artworkColumn
                 }
             }, {
-                size: listView._nameColSpan,
+                size: _size,
 
                 model: {
                     criteria: "name",
@@ -297,7 +306,7 @@ FocusScope {
                     text: I18n.qtr("Name")
                 }
             }, {
-                size: Math.max(listView._nbCols - listView._nameColSpan - 1, 1),
+                size: Math.max(_nbCols - _size - 1, 1),
 
                 model: {
                     criteria: "mrl",
@@ -308,9 +317,18 @@ FocusScope {
                 }
             }]
 
-            header: root.header
+            // Settings
 
-            headerColor: VLCStyle.colors.bg
+            rowHeight: VLCStyle.tableCoverRow_height
+
+            displayMarginEnd: root.displayMarginEnd
+
+            model: modelFilter
+
+            sortModel: (availableRowWidth < VLCStyle.colWidth(4)) ? _modelSmall
+                                                                  : _modelMedium
+
+            header: root.header
 
             selectionDelegateModel: modelSelect
 
@@ -325,15 +343,14 @@ FocusScope {
             Component {
                 id: artworkHeader
 
-                Item {
-                    Widgets.IconLabel {
-                        width: VLCStyle.listAlbumCover_width
-                        height: VLCStyle.listAlbumCover_height
+                Widgets.IconLabel {
+                    text: VLCIcons.album_cover
 
-                        horizontalAlignment: Text.AlignHCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: VLCStyle.icon_tableHeader
 
-                        color: VLCStyle.colors.caption
-                    }
+                    color: parent.colorContext.fg.secondary
                 }
             }
 
@@ -352,7 +369,8 @@ FocusScope {
                     property var rowModel: parent.rowModel
                     property var colModel: parent.colModel
 
-                    property color foregroundColor: parent.foregroundColor
+                    readonly property ColorContext colorContext: parent.colorContext
+                    readonly property bool selected: parent.selected
 
                     width: parent.width
 
@@ -379,7 +397,9 @@ FocusScope {
                                 return text
                         }
 
-                        color: itemText.foregroundColor
+                        color: itemText.selected
+                            ? itemText.colorContext.fg.highlight
+                            : itemText.colorContext.fg.primary
                     }
                 }
             }

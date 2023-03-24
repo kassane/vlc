@@ -390,13 +390,9 @@ static HRESULT D3D11_CreateDeviceExternal(vlc_object_t *obj, ID3D11DeviceContext
     HRESULT hr;
     ID3D11DeviceContext_GetDevice( d3d11ctx, &out->d3ddevice );
 
-    UINT creationFlags = ID3D11Device_GetCreationFlags(out->d3ddevice);
-    if (!(creationFlags & D3D11_CREATE_DEVICE_VIDEO_SUPPORT))
+    if (!(ID3D11Device_GetCreationFlags(out->d3ddevice) & D3D11_CREATE_DEVICE_VIDEO_SUPPORT))
     {
-        msg_Err(obj, "the provided D3D11 device doesn't support decoding");
-        ID3D11Device_Release(out->d3ddevice);
-        out->d3ddevice = NULL;
-        return E_FAIL;
+        msg_Warn(obj, "the provided D3D11 device doesn't support decoding");
     }
 
     IDXGIAdapter *pAdapter = D3D11DeviceAdapter(out->d3ddevice);
@@ -785,6 +781,46 @@ const d3d_format_t *(FindD3D11Format)(vlc_object_t *o,
     return NULL;
 }
 
+void D3D11_PictureAttach(picture_t *pic, ID3D11Texture2D *slicedTexture, const d3d_format_t *cfg)
+{
+    struct d3d11_pic_context *pic_ctx = D3D11_PICCONTEXT_FROM_PICCTX(pic->context);
+    D3D11_TEXTURE2D_DESC texDesc;
+    ID3D11Texture2D_GetDesc(slicedTexture, &texDesc);
+
+    if (texDesc.CPUAccessFlags != 0)
+    {
+        const video_format_t *fmt = &pic->format;
+
+        const vlc_chroma_description_t *p_chroma_desc = vlc_fourcc_GetChromaDescription( fmt->i_chroma );
+        if( !p_chroma_desc )
+            return;
+
+        for( unsigned i = 0; i < p_chroma_desc->plane_count; i++ )
+        {
+            plane_t *p = &pic->p[i];
+
+            p->i_lines         = fmt->i_height * p_chroma_desc->p[i].h.num / p_chroma_desc->p[i].h.den;
+            p->i_visible_lines = fmt->i_visible_height * p_chroma_desc->p[i].h.num / p_chroma_desc->p[i].h.den;
+            p->i_pitch         = fmt->i_width * p_chroma_desc->p[i].w.num / p_chroma_desc->p[i].w.den * p_chroma_desc->pixel_size;
+            p->i_visible_pitch = fmt->i_visible_width * p_chroma_desc->p[i].w.num / p_chroma_desc->p[i].w.den * p_chroma_desc->pixel_size;
+            p->i_pixel_pitch   = p_chroma_desc->pixel_size;
+        }
+    }
+
+    for (unsigned plane = 0; plane < DXGI_MAX_SHADER_VIEW; plane++)
+    {
+        if (!cfg->resourceFormat[plane])
+        {
+            pic_ctx->picsys.texture[plane] = NULL;
+        }
+        else
+        {
+            pic_ctx->picsys.texture[plane] = slicedTexture;
+            ID3D11Texture2D_AddRef(slicedTexture);
+        }
+    }
+}
+
 #undef AllocateTextures
 int AllocateTextures( vlc_object_t *obj, d3d11_device_t *d3d_dev,
                       const d3d_format_t *cfg, const video_format_t *fmt, bool shared,
@@ -931,7 +967,7 @@ void d3d11_pic_context_destroy(picture_context_t *ctx)
 {
     struct d3d11_pic_context *pic_ctx = D3D11_PICCONTEXT_FROM_PICCTX(ctx);
     ReleaseD3D11PictureSys(&pic_ctx->picsys);
-    if (pic_ctx->picsys.sharedHandle != INVALID_HANDLE_VALUE)
+    if (pic_ctx->picsys.sharedHandle != INVALID_HANDLE_VALUE && pic_ctx->picsys.ownHandle)
         CloseHandle(pic_ctx->picsys.sharedHandle);
     free(pic_ctx);
 }
@@ -989,6 +1025,7 @@ picture_t *D3D11_AllocPicture(vlc_object_t *obj,
             IDXGIResource1_CreateSharedHandle(sharedResource, NULL,
                                               DXGI_SHARED_RESOURCE_READ/*|DXGI_SHARED_RESOURCE_WRITE*/,
                                               NULL, &pic_ctx->picsys.sharedHandle);
+            pic_ctx->picsys.ownHandle = true;
             IDXGIResource1_Release(sharedResource);
         }
     }

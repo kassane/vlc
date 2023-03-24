@@ -26,9 +26,7 @@
 
 /* Define a builtin module for mocked parts */
 #define MODULE_NAME test_misc_image
-#define MODULE_STRING "test_misc_image"
-#undef __PLUGIN__
-const char vlc_module_name[] = MODULE_STRING;
+#undef VLC_DYNAMIC_PLUGIN
 
 #include "../../libvlc/test.h"
 
@@ -43,6 +41,8 @@ const char vlc_module_name[] = MODULE_STRING;
 #include <vlc_filter.h>
 
 #include <limits.h>
+
+const char vlc_module_name[] = MODULE_STRING;
 
 static atomic_bool encoder_opened = false;
 
@@ -139,9 +139,6 @@ vlc_module_begin()
         set_capability("interface", 0)
 
 vlc_module_end()
-
-/* Helper typedef for vlc_static_modules */
-typedef int (*vlc_plugin_cb)(vlc_set_cb, void*);
 
 VLC_EXPORT const vlc_plugin_cb vlc_static_modules[] = {
     VLC_SYMBOL(vlc_entry),

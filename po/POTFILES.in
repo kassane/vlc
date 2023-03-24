@@ -343,7 +343,7 @@ modules/codec/ttml/ttml.c
 modules/codec/ttml/ttml.h
 modules/codec/twolame.c
 modules/codec/uleaddvaudio.c
-modules/codec/videotoolbox.c
+modules/codec/videotoolbox/decoder.c
 modules/codec/vorbis.c
 modules/codec/vpx.c
 modules/codec/webvtt/webvtt.c
@@ -559,8 +559,6 @@ modules/gui/macosx/playlist/VLCPlaylistController.h
 modules/gui/macosx/playlist/VLCPlaylistController.m
 modules/gui/macosx/playlist/VLCPlaylistDataSource.h
 modules/gui/macosx/playlist/VLCPlaylistDataSource.m
-modules/gui/macosx/playlist/VLCPlaylistImageCache.h
-modules/gui/macosx/playlist/VLCPlaylistImageCache.m
 modules/gui/macosx/playlist/VLCPlaylistItem.h
 modules/gui/macosx/playlist/VLCPlaylistItem.m
 modules/gui/macosx/playlist/VLCPlaylistMenuController.h
@@ -593,8 +591,6 @@ modules/gui/macosx/views/VLCDefaultValueSliderCell.h
 modules/gui/macosx/views/VLCDefaultValueSliderCell.m
 modules/gui/macosx/views/VLCDragDropView.h
 modules/gui/macosx/views/VLCDragDropView.m
-modules/gui/macosx/views/VLCFSPanelDraggableView.h
-modules/gui/macosx/views/VLCFSPanelDraggableView.m
 modules/gui/macosx/views/VLCHUDOutlineView.h
 modules/gui/macosx/views/VLCHUDOutlineView.m
 modules/gui/macosx/views/VLCHUDTableCornerView.h
@@ -659,10 +655,6 @@ modules/gui/macosx/windows/mainwindow/VLCControlsBarCommon.h
 modules/gui/macosx/windows/mainwindow/VLCControlsBarCommon.m
 modules/gui/macosx/windows/mainwindow/VLCMainWindowControlsBar.h
 modules/gui/macosx/windows/mainwindow/VLCMainWindowControlsBar.m
-modules/gui/macosx/windows/video/VLCDetachedVideoWindow.h
-modules/gui/macosx/windows/video/VLCDetachedVideoWindow.m
-modules/gui/macosx/windows/video/VLCFSPanelController.h
-modules/gui/macosx/windows/video/VLCFSPanelController.m
 modules/gui/macosx/windows/video/VLCVideoOutputProvider.h
 modules/gui/macosx/windows/video/VLCVideoOutputProvider.m
 modules/gui/macosx/windows/video/VLCVideoWindowCommon.h
@@ -718,7 +710,6 @@ modules/gui/qt/dialogs/gototime/gototime.cpp
 modules/gui/qt/dialogs/gototime/gototime.hpp
 modules/gui/qt/dialogs/help/help.cpp
 modules/gui/qt/dialogs/help/help.hpp
-modules/gui/qt/dialogs/help/qml/About.qml
 modules/gui/qt/dialogs/mediainfo/info_panels.cpp
 modules/gui/qt/dialogs/mediainfo/info_panels.hpp
 modules/gui/qt/dialogs/mediainfo/info_widgets.cpp
@@ -842,7 +833,6 @@ modules/gui/qt/network/qml/BrowseTreeDisplay.qml
 modules/gui/qt/network/qml/DiscoverDisplay.qml
 modules/gui/qt/network/qml/DiscoverUrlDisplay.qml
 modules/gui/qt/network/qml/NetworkGridItem.qml
-modules/gui/qt/network/qml/NetworkListItem.qml
 modules/gui/qt/network/qml/ServicesHomeDisplay.qml
 modules/gui/qt/player/control_list_filter.cpp
 modules/gui/qt/player/control_list_filter.hpp

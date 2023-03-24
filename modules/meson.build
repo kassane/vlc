@@ -83,7 +83,6 @@ if host_system == 'darwin'
     avfoundation_dep = dependency('AVFoundation', required: true)
     corevideo_dep = dependency('CoreVideo', required: true)
     videotoolbox_dep = dependency('VideoToolbox', required: true)
-    audiounit_dep = dependency('AudioUnit', required: true)
     audiotoolbox_dep = dependency('AudioToolbox', required: true)
     iokit_dep = dependency('IOKit', required: true)
     quartz_dep = dependency('QuartzCore', required: true)
@@ -96,11 +95,14 @@ endif
 # macOS specific dependencies
 if have_osx
     cocoa_dep = dependency('Cocoa', required: true)
+    opengl_dep = dependency('OpenGL', required: true)
+    audiounit_dep = dependency('AudioUnit', required: true)
 endif
 
 # iOS/tvOS specific dependencies
 if have_ios or have_tvos
     uikit_dep = dependency('UIKit', required: true)
+    opengles_dep = dependency('OpenGLES', required: true)
 endif
 
 # Windows-specific dependencies
@@ -127,7 +129,7 @@ endif
 srt_dep = dependency('srt', version: '>=1.3.0', required: get_option('srt'))
 
 # libRist
-librist_dep = dependency('librist', required: false)
+librist_dep = dependency('librist', required: get_option('rist'))
 
 # MTP
 mtp_dep = dependency('libmtp', version: '>=1.0.0', required: get_option('mtp'))
@@ -280,7 +282,7 @@ foreach module : vlc_modules
 
     common_args = [
         '-DMODULE_STRING="@0@"'.format(module['name']),
-        '-D__PLUGIN__'
+        '-DVLC_DYNAMIC_PLUGIN'
     ]
 
     library(module['name'] + '_plugin',

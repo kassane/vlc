@@ -25,7 +25,9 @@
 #import "VLCMediaSourceBaseDataSource.h"
 
 #import "library/VLCLibraryCollectionViewFlowLayout.h"
+#import "library/VLCLibraryCollectionViewItem.h"
 #import "library/VLCLibraryController.h"
+#import "library/VLCLibraryUIUnits.h"
 #import "library/VLCLibraryWindow.h"
 
 #import "main/VLCMain.h"
@@ -39,6 +41,7 @@
         [self setupPropertiesFromLibraryWindow:libraryWindow];
         [self setupBaseDataSource];
         [self setupCollectionView];
+        [self setupMediaSourceLibraryViews];
     }
     return self;
 }
@@ -48,6 +51,7 @@
     NSParameterAssert(libraryWindow);
     _libraryTargetView = libraryWindow.libraryTargetView;
     _mediaSourceView = libraryWindow.mediaSourceView;
+    _mediaSourceTableView = libraryWindow.mediaSourceTableView;
     _collectionView = libraryWindow.mediaSourceCollectionView;
     _collectionViewScrollView = libraryWindow.mediaSourceCollectionViewScrollView;
     _tableView = libraryWindow.mediaSourceTableView;
@@ -71,7 +75,31 @@
 
 - (void)setupCollectionView
 {
-    _collectionView.collectionViewLayout = [[VLCLibraryCollectionViewFlowLayout alloc] init];
+    const CGFloat collectionItemSpacing = [VLCLibraryUIUnits collectionViewItemSpacing];
+    const NSEdgeInsets collectionViewSectionInset = [VLCLibraryUIUnits collectionViewSectionInsets];
+    
+    NSCollectionViewFlowLayout *mediaSourceCollectionViewLayout = [[VLCLibraryCollectionViewFlowLayout alloc] init];
+    _collectionView.collectionViewLayout = mediaSourceCollectionViewLayout;
+    mediaSourceCollectionViewLayout.itemSize = [VLCLibraryCollectionViewItem defaultSize];
+    mediaSourceCollectionViewLayout.minimumLineSpacing = collectionItemSpacing;
+    mediaSourceCollectionViewLayout.minimumInteritemSpacing = collectionItemSpacing;
+    mediaSourceCollectionViewLayout.sectionInset = collectionViewSectionInset;
+}
+
+- (void)setupMediaSourceLibraryViews
+{
+    _mediaSourceTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
+
+    const NSEdgeInsets defaultInsets = [VLCLibraryUIUnits libraryViewScrollViewContentInsets];
+    const NSEdgeInsets scrollerInsets = [VLCLibraryUIUnits libraryViewScrollViewScrollerInsets];
+
+    _collectionViewScrollView.automaticallyAdjustsContentInsets = NO;
+    _collectionViewScrollView.contentInsets = defaultInsets;
+    _collectionViewScrollView.scrollerInsets = scrollerInsets;
+
+    _tableViewScrollView.automaticallyAdjustsContentInsets = NO;
+    _tableViewScrollView.contentInsets = defaultInsets;
+    _tableViewScrollView.scrollerInsets = scrollerInsets;
 }
 
 - (void)presentBrowseView

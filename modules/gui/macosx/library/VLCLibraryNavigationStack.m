@@ -22,9 +22,11 @@
 
 #import "VLCLibraryNavigationStack.h"
 
-#import "VLCLibraryWindow.h"
-#import "VLCLibraryNavigationState.h"
 #import "VLCInputItem.h"
+#import "VLCInputNodePathControl.h"
+#import "VLCInputNodePathControlItem.h"
+#import "VLCLibraryNavigationState.h"
+#import "VLCLibraryWindow.h"
 
 #import "library/audio-library/VLCLibraryAudioViewController.h"
 
@@ -108,6 +110,11 @@
 
     NSUInteger newPositionIndex = _currentPosition.navigationStackIndex + 1;
     _currentPosition = [[VLCLibraryNavigationCurrentStackPosition alloc] initWithStackIndex:newPositionIndex andState:_navigationStates[newPositionIndex]];
+
+    VLCInputNode *node = _currentPosition.navigationState.currentNodeDisplayed;
+    VLCInputNodePathControlItem *nodePathItem = [[VLCInputNodePathControlItem alloc] initWithInputNode:node];
+    [_delegate.mediaSourcePathControl appendInputNodePathControlItem:nodePathItem];
+
     [self setDelegateToState:_currentPosition.navigationState];
 }
 
@@ -119,6 +126,9 @@
 
     NSUInteger newPositionIndex = _currentPosition.navigationStackIndex - 1;
     _currentPosition = [[VLCLibraryNavigationCurrentStackPosition alloc] initWithStackIndex:newPositionIndex andState:_navigationStates[newPositionIndex]];
+
+    [_delegate.mediaSourcePathControl removeLastInputNodePathControlItem];
+
     [self setDelegateToState:_currentPosition.navigationState];
 }
 
@@ -175,16 +185,16 @@
         return;
     }
 
-    [_delegate.segmentedTitleControl setSelectedSegment:state.libraryWindowSelectedSegment];
-    [_delegate.audioSegmentedControl setSelectedSegment:state.audioLibraryViewSelectedSegment];
-    [_delegate.gridVsListSegmentedControl setSelectedSegment:state.viewModeSelectedSegment];
     [_delegate.libraryMediaSourceViewController.baseDataSource setChildDataSource:state.currentMediaSource];
     [_delegate.libraryMediaSourceViewController.baseDataSource.childDataSource setNodeToDisplay:state.currentNodeDisplayed];
 
-    [_delegate segmentedControlAction:self];
-    [_delegate.libraryAudioViewController segmentedControlAction:self];
-    [_delegate.libraryMediaSourceViewController.baseDataSource setGridOrListMode:self];
+    [self updateDelegateNavigationButtons];
+}
 
+- (void)clear
+{
+    _navigationStates = [NSMutableArray array];
+    _currentPosition = nil;
     [self updateDelegateNavigationButtons];
 }
 

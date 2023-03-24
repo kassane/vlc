@@ -26,6 +26,10 @@
 #include <vlc_codecs.h>
 #include "coreaudio.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Use alias for scaled time */
 typedef int64_t stime_t;
 
@@ -980,18 +984,19 @@ typedef struct MP4_Box_data_stdp_s
 
 } MP4_Box_data_stdp_t;
 
+typedef struct
+{
+    uint64_t i_segment_duration; /* movie timescale */
+    int64_t  i_media_time; /* media(track) timescale */
+    uint16_t i_media_rate_integer;
+    uint16_t i_media_rate_fraction;
+} MP4_Box_data_elst_entry_t;
+
 typedef struct MP4_Box_data_elst_s
 {
-    uint8_t  i_version;
-    uint32_t i_flags;
-
     uint32_t i_entry_count;
 
-    uint64_t *i_segment_duration; /* movie timescale */
-    int64_t  *i_media_time; /* media(track) timescale */
-    uint16_t *i_media_rate_integer;
-    uint16_t *i_media_rate_fraction;
-
+    MP4_Box_data_elst_entry_t *entries;
 
 } MP4_Box_data_elst_t;
 
@@ -1358,21 +1363,33 @@ typedef struct
     uint8_t i_stream_number;
 } MP4_Box_data_ASF_t;
 
+typedef union
+{
+    struct
+    {
+        uint8_t i_num_leading_samples_known;
+        uint8_t i_num_leading_samples;
+    } rap;
+    struct
+    {
+        int16_t i_roll_distance;
+    } roll;
+} MP4_Box_data_sgpd_entry_t;
+
 typedef struct
 {
     uint8_t i_version;
     uint32_t i_grouping_type;
     uint32_t i_default_sample_description_index;
     uint32_t i_entry_count;
-    union
-    {
-        struct
-        {
-            uint8_t i_num_leading_samples_known;
-            uint8_t i_num_leading_samples;
-        } rap;
-    } *p_entries;
+    MP4_Box_data_sgpd_entry_t *p_entries;
 } MP4_Box_data_sgpd_t;
+
+typedef struct
+{
+    uint32_t i_sample_count;
+    uint32_t i_group_description_index;
+} MP4_Box_data_sbgp_entry_t;
 
 typedef struct
 {
@@ -1380,11 +1397,7 @@ typedef struct
     uint32_t i_grouping_type;
     uint32_t i_grouping_type_parameter;
     uint32_t i_entry_count;
-    struct
-    {
-        uint32_t *pi_sample_count;
-        uint32_t *pi_group_description_index;
-    } entries;
+    MP4_Box_data_sbgp_entry_t *p_entries;
 } MP4_Box_data_sbgp_t;
 
 typedef struct
@@ -1990,5 +2003,9 @@ int MP4_ReadBoxContainerRestricted( stream_t *p_stream, MP4_Box_t *p_container,
                                     const uint32_t excludelist[] );
 
 int MP4_ReadBox_sample_vide( stream_t *p_stream, MP4_Box_t *p_box );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

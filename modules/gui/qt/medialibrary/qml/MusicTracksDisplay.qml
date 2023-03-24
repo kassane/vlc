@@ -70,13 +70,11 @@ FocusScope {
 
         // To get blur effect while scrolling in mainview
         displayMarginEnd: g_mainDisplay.displayMargin
-
-        backgroundColor: VLCStyle.colors.bg
     }
 
     EmptyLabelButton {
         anchors.fill: parent
-        visible: !tracklistdisplay_id.model.hasContent
+        visible: tracklistdisplay_id.model.isReady && (tracklistdisplay_id.model.count <= 0)
         focus: visible
         text: I18n.qtr("No tracks found\nPlease try adding sources, by going to the Browse tab")
         Navigation.parentItem: root

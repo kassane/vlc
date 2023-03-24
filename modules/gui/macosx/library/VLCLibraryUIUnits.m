@@ -82,6 +82,17 @@
     return 280;
 }
 
++ (const CGFloat)collectionViewItemSpacing
+{
+    return [self largeSpacing];
+}
+
++ (const NSEdgeInsets)collectionViewSectionInsets
+{
+    const CGFloat inset = [self largeSpacing];
+    return NSEdgeInsetsMake(inset, inset, inset, inset);
+}
+
 + (const NSSize)adjustedCollectionViewItemSizeForCollectionView:(NSCollectionView *)collectionView
                                                      withLayout:(VLCLibraryCollectionViewFlowLayout *)collectionViewLayout
                                            withItemsAspectRatio:(VLCLibraryCollectionViewItemAspectRatio)itemsAspectRatio
@@ -135,6 +146,28 @@
         (itemWidth * [VLCLibraryCollectionViewItem videoHeightAspectRatioMultiplier]) + [VLCLibraryCollectionViewItem bottomTextViewsHeight];
 
     return NSMakeSize(itemWidth, itemHeight);
+}
+
++ (const NSEdgeInsets)libraryViewScrollViewContentInsets
+{
+    return NSEdgeInsetsMake([VLCLibraryUIUnits mediumSpacing],
+                            [VLCLibraryUIUnits mediumSpacing],
+                            [VLCLibraryUIUnits mediumSpacing],
+                            [VLCLibraryUIUnits mediumSpacing]);
+}
+
++ (const NSEdgeInsets)libraryViewScrollViewScrollerInsets
+{
+    const NSEdgeInsets contentInsets = [self libraryViewScrollViewContentInsets];
+    return NSEdgeInsetsMake(-contentInsets.top,
+                            -contentInsets.left,
+                            -contentInsets.bottom,
+                            -contentInsets.right);
+}
+
++ (const CGFloat)controlsFadeAnimationDuration
+{
+    return 0.4f;
 }
 
 @end

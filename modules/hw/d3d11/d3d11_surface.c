@@ -454,8 +454,7 @@ static void D3D11_RGBA(filter_t *p_filter, picture_t *src, picture_t *dst)
     plane_CopyPixels( dst->p, &src_planes );
 
     /* */
-    ID3D11DeviceContext_Unmap(sys->d3d_dev->d3dcontext,
-                              p_sys->resource[KNOWN_DXGI_INDEX], p_sys->slice_index);
+    ID3D11DeviceContext_Unmap(sys->d3d_dev->d3dcontext, sys->staging_resource, 0);
     vlc_mutex_unlock(&sys->staging_lock);
 }
 
@@ -729,6 +728,7 @@ int D3D11OpenConverter( filter_t *p_filter )
         pixel_bytes = 2;
         break;
     case VLC_CODEC_RGBA:
+    case VLC_CODEC_RGBA10:
         if( p_filter->fmt_in.video.i_chroma != VLC_CODEC_D3D11_OPAQUE_RGBA )
             return VLC_EGENERIC;
         p_filter->ops = &D3D11_RGBA_ops;

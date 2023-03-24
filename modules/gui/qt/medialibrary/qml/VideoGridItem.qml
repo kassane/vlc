@@ -36,8 +36,8 @@ Widgets.GridItem {
 
     function play() {
         if ( model.id !== undefined ) {
-            g_mainDisplay.showPlayer()
             MediaLib.addAndPlay( model.id )
+            g_mainDisplay.showPlayer()
         }
     }
 
@@ -77,7 +77,7 @@ Widgets.GridItem {
             visible: (model.progress > 0)
 
             radius: root.pictureRadius
-            value: Helpers.clamp(model.progress, 0, 1)
+            value: Helpers.clamp(model.progress !== undefined ? model.progress : 0, 0, 1)
         }
     }
 

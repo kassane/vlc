@@ -21,11 +21,17 @@
  *****************************************************************************/
 
 #import "VLCPlaylistTableCellView.h"
+
 #import "extensions/NSString+Helpers.h"
 #import "extensions/NSFont+VLCAdditions.h"
-#import "playlist/VLCPlaylistItem.h"
-#import "views/VLCImageView.h"
+
+#import "library/VLCLibraryImageCache.h"
+
 #import "main/VLCMain.h"
+
+#import "playlist/VLCPlaylistItem.h"
+
+#import "views/VLCImageView.h"
 
 @interface VLCPlaylistTableCellView ()
 {
@@ -62,6 +68,14 @@
 
 - (void)setRepresentedPlaylistItem:(VLCPlaylistItem *)item
 {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+        NSImage *image = [VLCLibraryImageCache thumbnailForPlaylistItem:item];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.audioArtworkImageView.image = image;
+            self.mediaImageView.image = image;
+        });
+    });
+
     NSString *artist = item.artistName;
     if (artist && artist.length > 0) {
         self.mediaTitleTextField.hidden = YES;
@@ -69,17 +83,19 @@
         self.artistTextField.hidden = NO;
         self.secondaryMediaTitleTextField.stringValue = item.title;
         self.artistTextField.stringValue = artist;
-        self.audioArtworkImageView.image = item.artworkImage;
         self.audioMediaTypeIndicator.hidden = NO;
+
+        self.audioArtworkImageView.hidden = NO;
         self.mediaImageView.hidden = YES;
     } else {
         self.mediaTitleTextField.hidden = NO;
         self.secondaryMediaTitleTextField.hidden = YES;
         self.artistTextField.hidden = YES;
         self.mediaTitleTextField.stringValue = item.title;
-        self.mediaImageView.image = item.artworkImage;
-        self.audioArtworkImageView.hidden = YES;
         self.audioMediaTypeIndicator.hidden = YES;
+
+        self.audioArtworkImageView.hidden = YES;
+        self.mediaImageView.hidden = NO;
     }
 
     self.durationTextField.stringValue = [NSString stringWithTimeFromTicks:item.duration];

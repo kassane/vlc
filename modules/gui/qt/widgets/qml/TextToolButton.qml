@@ -38,35 +38,28 @@ T.ToolButton {
 
     Keys.onPressed: Navigation.defaultKeyAction(event)
 
+    readonly property ColorContext colorContext : ColorContext {
+        id: theme
+        colorSet: ColorContext.ToolButton
+
+        enabled: control.enabled
+        focused: control.visualFocus
+        hovered: control.hovered
+        pressed: control.down
+    }
+
     contentItem: T.Label {
         text: control.text
         font: control.font
-        color: VLCStyle.colors.text
+        color: theme.fg.primary
         verticalAlignment: Text.AlignVCenter
         horizontalAlignment: Text.AlignHCenter
-
-        anchors {
-            verticalCenter: parent.verticalCenter
-            rightMargin: VLCStyle.margin_xsmall
-            leftMargin: VLCStyle.margin_small
-        }
-
-        Rectangle {
-            anchors {
-                left: parent.left
-                right: parent.right
-                bottom: parent.bottom
-            }
-            height: 2
-            visible: control.checked
-            color: control.activeFocus ? VLCStyle.colors.accent : VLCStyle.colors.bgHover
-        }
     }
 
     background: AnimatedBackground {
+        animate: theme.initialized
         active: visualFocus
-
-        backgroundColor: control.hovered ? VLCStyle.colors.buttonHover
-                                         : VLCStyle.colors.setColorAlpha(VLCStyle.colors.buttonHover, 0)
+        backgroundColor: theme.bg.primary
+        activeBorderColor: theme.visualFocus
     }
 }

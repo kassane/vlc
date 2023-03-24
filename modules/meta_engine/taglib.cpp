@@ -619,6 +619,31 @@ static void ProcessAPICListFromId3v2( const ID3v2::FrameList &list,
     }
 }
 
+static void ReadMetaFromBasicTag(const Tag* tag, vlc_meta_t *dest)
+{
+#define SET( accessor, meta )                                                  \
+    if( !tag->accessor().isEmpty() )                                           \
+        vlc_meta_Set##meta( dest, tag->accessor().toCString(true) )
+#define SETINT( accessor, meta )                                               \
+    if( tag->accessor() )                                                      \
+    {                                                                          \
+        char tmp[10];                                                          \
+        snprintf( tmp, 10, "%d", tag->accessor() );                            \
+        vlc_meta_Set##meta( dest, tmp );                                       \
+    }
+
+    SET( title, Title );
+    SET( artist, Artist );
+    SET( album, Album );
+    SET( comment, Description );
+    SET( genre, Genre );
+    SETINT( year, Date );
+    SETINT( track, TrackNum );
+
+#undef SETINT
+#undef SET
+}
+
 /**
  * Read meta information from id3v2 tags
  * @param tag: the id3v2 tag
@@ -900,6 +925,28 @@ static bool isSchemeCompatible( const char *psz_uri )
     return false;
 }
 
+static int ReadWAVMeta( const RIFF::WAV::File *wav, demux_meta_t *demux_meta )
+{
+    if( !wav->hasID3v2Tag() && !wav->hasInfoTag() )
+        return VLC_EGENERIC;
+
+    demux_meta->p_meta = vlc_meta_New();
+    if( !demux_meta->p_meta )
+        return VLC_ENOMEM;
+
+    TAB_INIT( demux_meta->i_attachments, demux_meta->attachments );
+
+    if( wav->hasInfoTag() )
+        ReadMetaFromBasicTag( wav->InfoTag(), demux_meta->p_meta );
+    if( wav->hasID3v2Tag() )
+    {
+        // Re-read basic tags from id3 to prioritize it against INFO tags.
+        ReadMetaFromBasicTag( wav->ID3v2Tag(), demux_meta->p_meta );
+        ReadMetaFromId3v2( wav->ID3v2Tag(), demux_meta, demux_meta->p_meta );
+    }
+    return VLC_SUCCESS;
+}
+
 /**
  * Get the tags from the file using TagLib
  * @param p_this: the demux object
@@ -949,6 +996,14 @@ static int ReadMeta( vlc_object_t* p_this)
 
     if( f.isNull() )
         return VLC_EGENERIC;
+
+    // XXX: Workaround a quirk in TagLib that doesn't merge id3 tags and RIFF
+    // INFO tags in `Wav::File::tag()`'s return value.
+    // This forces us to parse WAV separately for now.
+    const auto* riff_wav = dynamic_cast<RIFF::WAV::File*>(f.file());
+    if (riff_wav != nullptr)
+        return ReadWAVMeta(riff_wav, p_demux_meta);
+
     if( !f.tag() || f.tag()->isEmpty() )
         return VLC_EGENERIC;
 
@@ -956,31 +1011,8 @@ static int ReadMeta( vlc_object_t* p_this)
     if( !p_meta )
         return VLC_ENOMEM;
 
-
     // Read the tags from the file
-    Tag* p_tag = f.tag();
-
-#define SET( tag, meta )                                                       \
-    if( !p_tag->tag().isEmpty() )                                              \
-        vlc_meta_Set##meta( p_meta, p_tag->tag().toCString(true) )
-#define SETINT( tag, meta )                                                    \
-    if( p_tag->tag() )                                                         \
-    {                                                                          \
-        char psz_tmp[10];                                                      \
-        snprintf( psz_tmp, 10, "%d", p_tag->tag() );                           \
-        vlc_meta_Set##meta( p_meta, psz_tmp );                                 \
-    }
-
-    SET( title, Title );
-    SET( artist, Artist );
-    SET( album, Album );
-    SET( comment, Description );
-    SET( genre, Genre );
-    SETINT( year, Date );
-    SETINT( track, TrackNum );
-
-#undef SETINT
-#undef SET
+    ReadMetaFromBasicTag(f.tag(), p_meta);
 
     TAB_INIT( p_demux_meta->i_attachments, p_demux_meta->attachments );
 
@@ -1033,12 +1065,9 @@ static int ReadMeta( vlc_object_t* p_this)
             ReadMetaFromXiph( ogg_opus->tag(), p_demux_meta, p_meta );
 #endif
     }
-    else if( dynamic_cast<RIFF::File*>(f.file()) )
+    else if( RIFF::AIFF::File* riff_aiff = dynamic_cast<RIFF::AIFF::File*>(f.file()) )
     {
-        if( RIFF::AIFF::File* riff_aiff = dynamic_cast<RIFF::AIFF::File*>(f.file()) )
-            ReadMetaFromId3v2( riff_aiff->tag(), p_demux_meta, p_meta );
-        else if( RIFF::WAV::File* riff_wav = dynamic_cast<RIFF::WAV::File*>(f.file()) )
-            ReadMetaFromId3v2( riff_wav->tag(), p_demux_meta, p_meta );
+        ReadMetaFromId3v2( riff_aiff->tag(), p_demux_meta, p_meta );
     }
     else if( TrueAudio::File* trueaudio = dynamic_cast<TrueAudio::File*>(f.file()) )
     {

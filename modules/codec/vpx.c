@@ -110,29 +110,29 @@ static const struct
     vlc_fourcc_t     i_chroma;
     enum vpx_img_fmt i_chroma_id;
     uint8_t          i_bitdepth;
-    uint8_t          i_needs_hack;
-
+    enum vpx_color_space cs;
 } chroma_table[] =
 {
-    { VLC_CODEC_I420, VPX_IMG_FMT_I420, 8, 0 },
-    { VLC_CODEC_I422, VPX_IMG_FMT_I422, 8, 0 },
-    { VLC_CODEC_I444, VPX_IMG_FMT_I444, 8, 0 },
-    { VLC_CODEC_I440, VPX_IMG_FMT_I440, 8, 0 },
+    /* Transfer characteristic-dependent mappings must come first */
+    { VLC_CODEC_GBR_PLANAR, VPX_IMG_FMT_I444, 8, VPX_CS_SRGB },
+    { VLC_CODEC_GBR_PLANAR_10L, VPX_IMG_FMT_I44416, 10, VPX_CS_SRGB },
 
-    { VLC_CODEC_YV12, VPX_IMG_FMT_YV12, 8, 0 },
+    { VLC_CODEC_I420, VPX_IMG_FMT_I420, 8, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I422, VPX_IMG_FMT_I422, 8, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I444, VPX_IMG_FMT_I444, 8, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I440, VPX_IMG_FMT_I440, 8, VPX_CS_UNKNOWN },
 
-    { VLC_CODEC_GBR_PLANAR, VPX_IMG_FMT_I444, 8, 1 },
-    { VLC_CODEC_GBR_PLANAR_10L, VPX_IMG_FMT_I44416, 10, 1 },
+    { VLC_CODEC_YV12, VPX_IMG_FMT_YV12, 8, VPX_CS_UNKNOWN },
 
-    { VLC_CODEC_I420_10L, VPX_IMG_FMT_I42016, 10, 0 },
-    { VLC_CODEC_I422_10L, VPX_IMG_FMT_I42216, 10, 0 },
-    { VLC_CODEC_I444_10L, VPX_IMG_FMT_I44416, 10, 0 },
+    { VLC_CODEC_I420_10L, VPX_IMG_FMT_I42016, 10, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I422_10L, VPX_IMG_FMT_I42216, 10, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I444_10L, VPX_IMG_FMT_I44416, 10, VPX_CS_UNKNOWN },
 
-    { VLC_CODEC_I420_12L, VPX_IMG_FMT_I42016, 12, 0 },
-    { VLC_CODEC_I422_12L, VPX_IMG_FMT_I42216, 12, 0 },
-    { VLC_CODEC_I444_12L, VPX_IMG_FMT_I44416, 12, 0 },
+    { VLC_CODEC_I420_12L, VPX_IMG_FMT_I42016, 12, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I422_12L, VPX_IMG_FMT_I42216, 12, VPX_CS_UNKNOWN },
+    { VLC_CODEC_I444_12L, VPX_IMG_FMT_I44416, 12, VPX_CS_UNKNOWN },
 
-    { VLC_CODEC_I444_16L, VPX_IMG_FMT_I44416, 16, 0 },
+    { VLC_CODEC_I444_16L, VPX_IMG_FMT_I44416, 16, VPX_CS_UNKNOWN },
 };
 
 struct video_color
@@ -172,12 +172,11 @@ const struct video_color vpx_color_mapping_table[] =
 
 static vlc_fourcc_t FindVlcChroma( struct vpx_image *img )
 {
-    uint8_t hack = (img->fmt & VPX_IMG_FMT_I444) && (img->cs == VPX_CS_SRGB);
-
     for( unsigned int i = 0; i < ARRAY_SIZE(chroma_table); i++ )
         if( chroma_table[i].i_chroma_id == img->fmt &&
             chroma_table[i].i_bitdepth == img->bit_depth &&
-            chroma_table[i].i_needs_hack == hack )
+            ( chroma_table[i].cs == VPX_CS_UNKNOWN ||
+              chroma_table[i].cs == img->cs ) )
             return chroma_table[i].i_chroma;
 
     return 0;
@@ -274,17 +273,10 @@ static int Decode(decoder_t *dec, block_t *block)
         return VLCDEC_SUCCESS;
 
     for (int plane = 0; plane < pic->i_planes; plane++ ) {
-        uint8_t *src = img->planes[plane];
-        uint8_t *dst = pic->p[plane].p_pixels;
-        int src_stride = img->stride[plane];
-        int dst_stride = pic->p[plane].i_pitch;
-
-        int size = __MIN( src_stride, dst_stride );
-        for( int line = 0; line < pic->p[plane].i_visible_lines; line++ ) {
-            memcpy( dst, src, size );
-            src += src_stride;
-            dst += dst_stride;
-        }
+        plane_t src_plane = pic->p[plane];
+        src_plane.p_pixels = img->planes[plane];
+        src_plane.i_pitch = img->stride[plane];
+        plane_CopyPixels(&pic->p[plane], &src_plane);
     }
 
     pic->b_progressive = true; /* codec does not support interlacing */
@@ -498,14 +490,15 @@ static block_t *Encode(encoder_t *p_enc, picture_t *p_pict)
     unsigned i_w = p_enc->fmt_in.video.i_visible_width;
     unsigned i_h = p_enc->fmt_in.video.i_visible_height;
 
-    /* Create and initialize the vpx_image */
-    if (!vpx_img_wrap(&img, VPX_IMG_FMT_I420, i_w, i_h, p_pict->p[0].i_pitch, p_pict->p[0].p_pixels)) {
+    /* Create and initialize the vpx_image (use 1 and correct later to avoid getting
+       rejected for non-power of 2 pitch) */
+    if (!vpx_img_wrap(&img, VPX_IMG_FMT_I420, i_w, i_h, 1, p_pict->p[0].p_pixels)) {
         VPX_ERR(p_enc, ctx, "Failed to wrap image");
         return NULL;
     }
 
-    /* Correct chroma plane offsets. */
-    for (int plane = 1; plane < p_pict->i_planes; plane++) {
+    /* Fill in real plane/stride values. */
+    for (int plane = 0; plane < p_pict->i_planes; plane++) {
         img.planes[plane] = p_pict->p[plane].p_pixels;
         img.stride[plane] = p_pict->p[plane].i_pitch;
     }

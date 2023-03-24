@@ -31,10 +31,11 @@ import "qrc:///menus/" as Menus
 FocusScope{
     id: root
 
+    // Properties
+
     /* required */ property int textWidth
 
     property string title
-    property VLCColors colors: VLCStyle.nightColors
 
     property bool showCSD: false
     property bool showToolbar: false
@@ -46,6 +47,12 @@ FocusScope{
     property int reservedHeight: 0
 
     readonly property int _sideMargin: VLCStyle.margin_small + sideMargin
+
+    // Aliases
+
+    property alias resumeVisible: resumeDialog.visible
+
+    // Signals
 
     signal togglePlaylistVisibility()
     signal requestLockUnlockAutoHide(bool lock)
@@ -161,6 +168,11 @@ FocusScope{
         reservedHeight = offset
     }
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.Window
+    }
+
     //drag and dbl click the titlebar in CSD mode
     Loader {
         id: tapNDrag
@@ -185,9 +197,6 @@ FocusScope{
 
         visible: root.showToolbar
         enabled: root.showToolbar
-        textColor: root.colors.text
-        highlightedBgColor: root.colors.bgHover
-        highlightedTextColor: root.colors.bgHoverText
 
         onHoveredChanged: root.requestLockUnlockAutoHide(hovered)
         onMenuOpenedChanged: root.requestLockUnlockAutoHide(menuOpened)
@@ -201,11 +210,11 @@ FocusScope{
         anchors.top: root.top
         anchors.leftMargin:  root._sideMargin
 
-        implicitWidth: resumeDialog.visible ? resumeDialog.implicitWidth
-                                            : logoGroup.implicitWidth
+        implicitWidth: resumeVisible ? resumeDialog.implicitWidth
+                                     : logoGroup.implicitWidth
 
-        implicitHeight: resumeDialog.visible ? resumeDialog.implicitHeight
-                                             : logoGroup.implicitHeight
+        implicitHeight: resumeVisible ? resumeDialog.implicitHeight
+                                      : logoGroup.implicitHeight
 
         onImplicitHeightChanged: root._layout()
 
@@ -213,7 +222,7 @@ FocusScope{
             id: logoGroup
 
             anchors.fill: parent
-            visible: !resumeDialog.visible
+            visible: !resumeVisible
 
             implicitHeight: VLCStyle.icon_banner + VLCStyle.margin_xxsmall * 2
             implicitWidth: backBtn.implicitWidth + logo.implicitWidth + VLCStyle.margin_xxsmall
@@ -229,8 +238,6 @@ FocusScope{
                 iconText: VLCIcons.back
                 text: I18n.qtr("Back")
                 focus: true
-                colors: root.colors
-
 
                 Navigation.parentItem: root
                 Navigation.rightItem: menuSelector
@@ -245,6 +252,8 @@ FocusScope{
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: backBtn.right
                 anchors.leftMargin: VLCStyle.margin_xxsmall
+
+                color: theme.accent
 
                 Connections {
                     target: logo.button
@@ -264,10 +273,11 @@ FocusScope{
             //add aditional margin so it align with menubar text when visible (see MenuBar.qml)
             anchors.leftMargin: VLCStyle.margin_xsmall
 
-            colors: root.colors
             maxWidth: ((root.showCSD && !root.pinControls) ? csdDecorations : playlistGroup).x
                 - VLCStyle.applicationHorizontalMargin
                 - VLCStyle.margin_large
+
+            colorContext.palette: theme.palette
 
             Navigation.parentItem: rootPlayer
 
@@ -294,7 +304,7 @@ FocusScope{
         readonly property bool _alignHCenter: _centerX > _leftLimit
                                               && _centerX + centerTitleText.implicitWidth < _rightLimit
 
-        visible: root.pinControls && !resumeDialog.visible
+        visible: root.pinControls && !resumeVisible
 
         width: Math.min(centerTitleText._availableWidth, centerTitleText.implicitWidth)
 
@@ -302,7 +312,7 @@ FocusScope{
         rightPadding: VLCStyle.margin_small
 
         text: root.title
-        color: root.colors.playerFg
+        color: theme.fg.primary
         font.pixelSize: VLCStyle.dp(13, VLCStyle.scale)
         font.weight: Font.DemiBold
         elide: Text.ElideRight
@@ -339,7 +349,7 @@ FocusScope{
 
         text: root.title
         horizontalAlignment: Text.AlignLeft
-        color: root.colors.playerFg
+        color: theme.fg.primary
         font.weight: Font.DemiBold
         font.pixelSize: VLCStyle.dp(18, VLCStyle.scale)
         elide: Text.ElideRight
@@ -356,20 +366,9 @@ FocusScope{
         active: root.showCSD
         enabled: root.showCSD
         visible: root.showCSD
-        source:  VLCStyle.theme.hasCSDImage
+        source:  VLCStyle.palette.hasCSDImage
             ? "qrc:///widgets/CSDThemeButtonSet.qml"
             : "qrc:///widgets/CSDWindowButtonSet.qml"
-        onLoaded: {
-            if (VLCStyle.theme.hasCSDImage) {
-                if (item.hasOwnProperty("color"))
-                    item.color = Qt.binding(function() { return VLCStyle.colors.topBanner })
-            } else {
-                if (item.hasOwnProperty("color"))
-                    item.color = Qt.binding(function() { return root.colors.playerFg })
-                if (item.hasOwnProperty("hoverColor"))
-                    item.hoverColor = Qt.binding(function() { return root.colors.windowCSDButtonDarkBg })
-            }
-        }
 
         Connections {
             target: csdDecorations.item
@@ -403,7 +402,6 @@ FocusScope{
 
             iconText: VLCIcons.menu
             text: I18n.qtr("Menu")
-            colors: root.colors
 
             Navigation.parentItem: root
             Navigation.leftItem: backBtn
@@ -430,8 +428,9 @@ FocusScope{
             size: VLCStyle.icon_banner
             iconText: VLCIcons.playlist
             text: I18n.qtr("Playlist")
-            colors: root.colors
             focus: root.showToolbar
+
+            checked: MainCtx.playlistVisible
 
             width: VLCStyle.bannerButton_width
             height: VLCStyle.bannerButton_height

@@ -42,8 +42,6 @@ T.Control {
 
     readonly property bool containsDrag: (topContainsDrag || bottomContainsDrag)
 
-    readonly property VLCColors colors: root.colors
-
     // Settings
 
     topPadding: VLCStyle.margin_xxsmall
@@ -91,19 +89,22 @@ T.Control {
 
     // Childs
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.Item
+
+        focused: delegate.activeFocus
+        hovered: delegate.hovered
+        enabled: delegate.enabled
+    }
+
     background: Widgets.AnimatedBackground {
-        color: {
-            if (selected)
-                return colors.gridSelect;
-            else if (hovered)
-                return colors.listHover;
-            else
-                return colors.setColorAlpha(colors.gridSelect, 0);
-        }
+        backgroundColor: selected ? theme.bg.highlight : theme.bg.primary
 
-        active: visualFocus
+        active: delegate.visualFocus
+        animate: theme.initialized
 
-        activeBorderColor: colors.bgFocus
+        activeBorderColor: theme.visualFocus
 
         visible: animationRunning || active || selected || hovered
     }
@@ -135,11 +136,9 @@ T.Control {
                     z: -1
 
                     primaryBlurRadius: VLCStyle.dp(3)
-                    primaryColor: Qt.rgba(0, 0, 0, 0.18)
                     primaryVerticalOffset: VLCStyle.dp(1)
 
                     secondaryBlurRadius: VLCStyle.dp(14)
-                    secondaryColor: Qt.rgba(0, 0, 0, 0.22)
                     secondaryVerticalOffset: VLCStyle.dp(6)
                 }
             }
@@ -149,7 +148,7 @@ T.Control {
 
                 anchors.centerIn: parent
                 visible: (model.isCurrent && text !== "")
-                color: colors.accent
+                color: theme.accent
                 text: {
                     if (Player.playingState === Player.PLAYING_STATE_PLAYING)
                         return VLCIcons.volume_high
@@ -177,7 +176,7 @@ T.Control {
 
                 font.weight: model.isCurrent ? Font.Bold : Font.DemiBold
                 text: model.title
-                color: colors.text
+                color: theme.fg.primary
                 verticalAlignment: Text.AlignTop
             }
 
@@ -189,7 +188,7 @@ T.Control {
 
                 font.weight: model.isCurrent ? Font.DemiBold : Font.Normal
                 text: (model.artist ? model.artist : I18n.qtr("Unknown Artist"))
-                color: colors.text
+                color: theme.fg.primary
                 verticalAlignment: Text.AlignBottom
             }
         }
@@ -200,7 +199,7 @@ T.Control {
             text: model.duration.formatHMS()
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
-            color: colors.text
+            color: theme.fg.primary
             opacity: 0.5
         }
     }

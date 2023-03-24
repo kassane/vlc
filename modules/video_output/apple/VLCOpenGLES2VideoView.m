@@ -490,9 +490,16 @@ static void Close(vlc_gl_t *gl)
 
 
 
-static int Open(vlc_gl_t *gl, unsigned width, unsigned height)
+static int Open(vlc_gl_t *gl, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
     vlc_window_t *wnd = gl->surface;
+
+    if (gl_cfg->need_alpha)
+    {
+        msg_Err(gl, "Cannot support alpha yet");
+        return VLC_ENOTSUP;
+    }
 
     /* We only support UIView container window. */
     if (wnd->type != VLC_WINDOW_TYPE_NSOBJECT)
@@ -521,7 +528,6 @@ vlc_module_begin ()
     set_shortname (N_("CAEAGL"))
     set_description (N_("CAEAGL provider for OpenGL"))
     set_subcategory (SUBCAT_VIDEO_VOUT)
-    set_capability ("opengl es2", 50)
-    set_callback(Open)
+    set_callback_opengl_es2 (Open, 50)
     add_shortcut ("caeagl")
 vlc_module_end ()

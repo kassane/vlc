@@ -16,6 +16,7 @@ qt5_dep = dependency('qt5',
         'Core', 'Gui', 'Widgets', 'Svg', 'Qml',
         'Quick', 'QuickWidgets', 'QuickControls2',
         ],
+    private_headers: true,
     required: get_option('qt'))
 
 moc_headers = files(
@@ -64,6 +65,7 @@ moc_headers = files(
     'dialogs/playlists/playlists.hpp',
     'dialogs/vlm/vlm.hpp',
     'maininterface/compositor.hpp',
+    'maininterface/compositor_common.hpp',
     'maininterface/compositor_dummy.hpp',
     'maininterface/interface_window_handler.hpp',
     'maininterface/mainctx.hpp',
@@ -103,6 +105,7 @@ moc_headers = files(
     'network/servicesdiscoverymodel.hpp',
     'network/standardpathmodel.hpp',
     'style/systempalette.hpp',
+    'style/colorcontext.hpp',
     'player/input_models.hpp',
     'player/player_controller.hpp',
     'player/player_controlbar_model.hpp',
@@ -270,6 +273,10 @@ some_sources = files(
     'dialogs/playlists/playlists.hpp',
     'maininterface/compositor.hpp',
     'maininterface/compositor.cpp',
+    'maininterface/compositor_common.hpp',
+    'maininterface/compositor_common.cpp',
+    'maininterface/compositor_accessibility.hpp',
+    'maininterface/compositor_accessibility.cpp',
     'maininterface/compositor_dummy.hpp',
     'maininterface/compositor_dummy.cpp',
     'maininterface/interface_window_handler.cpp',
@@ -365,6 +372,8 @@ some_sources = files(
     'network/standardpathmodel.cpp',
     'network/standardpathmodel.hpp',
     'style/qtthemeprovider.hpp',
+    'style/colorcontext.cpp',
+    'style/colorcontext.hpp',
     'style/systempalette.cpp',
     'style/systempalette.hpp',
     'style/defaultthemeproviders.hpp',
@@ -626,12 +635,18 @@ if qt5_dep.found()
     wayland_qt5_dep = dependency('qt5', modules: ['WaylandClient'], required: false)
 
     if wayland_qt5_dep.found()
-        qt_extra_deps += [wayland_dep]
+        qt_extra_deps += [wayland_qt5_dep]
         qt_extra_flags += '-DQT5_HAS_WAYLAND'
     endif
 
     if get_option('qt_qml_debug')
         qt_extra_flags += '-DQT_QML_DEBUG'
+    endif
+
+    #check private headers
+    if cpp.has_header('private/qquickitem_p.h', dependencies: qt5_dep) \
+      and cpp.has_header('private/qquickwindow_p.h', dependencies: qt5_dep)
+        qt_extra_flags += '-DQT5_DECLARATIVE_PRIVATE'
     endif
 
     if host_system == 'windows'

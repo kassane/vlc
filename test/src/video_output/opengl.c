@@ -24,8 +24,7 @@
 
 /* Define a builtin module for mocked parts */
 #define MODULE_NAME test_offscreen_mock
-#define MODULE_STRING "test_offscreen_mock"
-#undef __PLUGIN__
+#undef VLC_DYNAMIC_PLUGIN
 
 #include "../../libvlc/test.h"
 #include "../../../lib/libvlc_internal.h"
@@ -122,9 +121,10 @@ static void OpenGLClose(vlc_gl_t *gl)
 static int
 OpenOpenGLCommon(
         vlc_gl_t *gl, unsigned width, unsigned height,
-        bool offscreen, enum vlc_gl_api_type api_type)
+        bool offscreen, enum vlc_gl_api_type api_type,
+        const struct vlc_gl_cfg *cfg)
 {
-    (void)width; (void)height;
+    (void)width; (void)height; (void) cfg;
     assert(gl->api_type == api_type);
 
     static const struct vlc_gl_operations onscreen_ops =
@@ -152,23 +152,24 @@ OpenOpenGLCommon(
 }
 
 static int
-OpenOpenGL(vlc_gl_t *gl, unsigned width, unsigned height)
-    { return OpenOpenGLCommon(gl, width, height, false, VLC_OPENGL); };
+OpenOpenGL(vlc_gl_t *gl, unsigned width, unsigned height,
+           const struct vlc_gl_cfg *cfg)
+    { return OpenOpenGLCommon(gl, width, height, false, VLC_OPENGL, cfg); };
 
 static int
-OpenOpenGLES(vlc_gl_t *gl, unsigned width, unsigned height)
-    { return OpenOpenGLCommon(gl, width, height, false, VLC_OPENGL_ES2); };
+OpenOpenGLES(vlc_gl_t *gl, unsigned width, unsigned height,
+             const struct vlc_gl_cfg *cfg)
+    { return OpenOpenGLCommon(gl, width, height, false, VLC_OPENGL_ES2, cfg); };
 
 static int
-OpenOpenGLOffscreen(vlc_gl_t *gl, unsigned width, unsigned height)
-    { return OpenOpenGLCommon(gl, width, height, true, VLC_OPENGL); };
+OpenOpenGLOffscreen(vlc_gl_t *gl, unsigned width, unsigned height,
+                    const struct vlc_gl_cfg *cfg)
+    { return OpenOpenGLCommon(gl, width, height, true, VLC_OPENGL, cfg); };
 
 static int
-OpenOpenGLESOffscreen(vlc_gl_t *gl, unsigned width, unsigned height)
-    { return OpenOpenGLCommon(gl, width, height, true, VLC_OPENGL_ES2); };
-
-/* Helper typedef for vlc_static_modules */
-typedef int (*vlc_plugin_cb)(vlc_set_cb, void*);
+OpenOpenGLESOffscreen(vlc_gl_t *gl, unsigned width, unsigned height,
+                      const struct vlc_gl_cfg *cfg)
+    { return OpenOpenGLCommon(gl, width, height, true, VLC_OPENGL_ES2, cfg); };
 
 /**
  * Inject the mocked modules as a static plugin:
@@ -185,24 +186,22 @@ vlc_module_begin()
         set_capability("vout window", 1)
 
     add_submodule()
-        set_callback(OpenOpenGL)
-        set_capability("opengl", 1)
+        set_callback_opengl(OpenOpenGL, 1)
 
     add_submodule()
-        set_callback(OpenOpenGLES)
-        set_capability("opengl es2", 1)
+        set_callback_opengl_es2(OpenOpenGLES, 1)
 
     add_submodule()
-        set_callback(OpenOpenGLOffscreen)
-        set_capability("opengl offscreen", 1)
+        set_callback_opengl_offscreen(OpenOpenGLOffscreen, 1)
 
     add_submodule()
-        set_callback(OpenOpenGLESOffscreen)
-        set_capability("opengl es2 offscreen", 1)
+        set_callback_opengl_es2_offscreen(OpenOpenGLESOffscreen, 1)
 vlc_module_end()
 
-VLC_EXPORT vlc_plugin_cb
-vlc_static_modules[] = { vlc_entry__test_offscreen_mock, NULL };
+VLC_EXPORT const vlc_plugin_cb vlc_static_modules[] = {
+    VLC_SYMBOL(vlc_entry),
+    NULL
+};
 
 static void test_opengl_offscreen(vlc_object_t *root, enum vlc_gl_api_type api_type)
 {
@@ -211,7 +210,7 @@ static void test_opengl_offscreen(vlc_object_t *root, enum vlc_gl_api_type api_t
     assert(device != NULL);
 
     vlc_gl_t *gl = vlc_gl_CreateOffscreen(
-            root, device, 800, 600, api_type, MODULE_STRING);
+            root, device, 800, 600, api_type, MODULE_STRING, NULL);
     assert(gl != NULL);
     vlc_decoder_device_Release(device);
 
@@ -238,7 +237,7 @@ static void test_opengl(vlc_object_t *root, enum vlc_gl_api_type api_type)
         .display.width = wnd_cfg.width,
         .display.height = wnd_cfg.height,
     };
-    vlc_gl_t *gl = vlc_gl_Create(&cfg, api_type, MODULE_STRING);
+    vlc_gl_t *gl = vlc_gl_Create(&cfg, api_type, MODULE_STRING, NULL);
     assert(gl != NULL);
 
     assert(vlc_gl_MakeCurrent(gl) == VLC_SUCCESS);

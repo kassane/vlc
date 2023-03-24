@@ -24,10 +24,6 @@
 # include "config.h"
 #endif
 
-#define MODULE_NAME test_transcode_mock
-#define MODULE_STRING "test_transcode_mock"
-#undef __PLUGIN__
-
 #include <vlc_common.h>
 #include <vlc_frame.h>
 

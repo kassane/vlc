@@ -32,6 +32,8 @@
 #include <dlfcn.h>
 
 #include "device.h"
+#include "dynamicsprocessing_jni.h"
+#include "../../video_output/android/env.h"
 
 #include <aaudio/AAudio.h>
 
@@ -39,6 +41,14 @@
 
 struct sys
 {
+    struct
+    {
+        aaudio_format_t format;
+        int32_t session_id;
+        int32_t device_id;
+        bool low_latency;
+    } cfg;
+
     AAudioStream *as;
 
     jobject dp;
@@ -46,7 +56,6 @@ struct sys
     bool muted;
 
     audio_sample_format_t fmt;
-    int64_t frames_flush_pos;
     bool error;
 
     /* Spinlock that protect all the following variables */
@@ -78,6 +87,7 @@ static struct {
     void *handle;
     aaudio_result_t       (*AAudio_createStreamBuilder)(AAudioStreamBuilder **);
     const char           *(*AAudio_convertResultToText)(aaudio_result_t);
+    void                  (*AAudioStreamBuilder_setDeviceId)(AAudioStreamBuilder *, int32_t);
     void                  (*AAudioStreamBuilder_setFormat)(AAudioStreamBuilder *, aaudio_format_t);
     void                  (*AAudioStreamBuilder_setChannelCount)(AAudioStreamBuilder *, int32_t);
     void                  (*AAudioStreamBuilder_setDataCallback)(AAudioStreamBuilder *, AAudioStream_dataCallback, void *);
@@ -91,6 +101,7 @@ static struct {
     aaudio_result_t       (*AAudioStream_requestStop)(AAudioStream *);
     aaudio_result_t       (*AAudioStream_requestPause)(AAudioStream *);
     aaudio_result_t       (*AAudioStream_requestFlush)(AAudioStream *);
+    int32_t               (*AAudioStream_getDeviceId)(AAudioStream *);
     int32_t               (*AAudioStream_getSampleRate)(AAudioStream *);
     aaudio_result_t       (*AAudioStream_getTimestamp)(AAudioStream *, clockid_t,
                                                        int64_t *framePosition, int64_t *timeNanoseconds);
@@ -144,6 +155,7 @@ LoadSymbols(aout_stream_t *stream)
     AAUDIO_DLSYM(AAudio_createStreamBuilder);
     AAUDIO_DLSYM(AAudio_convertResultToText);
     AAUDIO_DLSYM(AAudioStreamBuilder_setChannelCount);
+    AAUDIO_DLSYM(AAudioStreamBuilder_setDeviceId);
     AAUDIO_DLSYM(AAudioStreamBuilder_setFormat);
     AAUDIO_DLSYM(AAudioStreamBuilder_setDataCallback);
     AAUDIO_DLSYM(AAudioStreamBuilder_setErrorCallback);
@@ -156,6 +168,7 @@ LoadSymbols(aout_stream_t *stream)
     AAUDIO_DLSYM(AAudioStream_requestStop);
     AAUDIO_DLSYM(AAudioStream_requestPause);
     AAUDIO_DLSYM(AAudioStream_requestFlush);
+    AAUDIO_DLSYM(AAudioStream_getDeviceId);
     AAUDIO_DLSYM(AAudioStream_getSampleRate);
     AAUDIO_DLSYM(AAudioStream_getTimestamp);
     AAUDIO_DLSYM(AAudioStream_write);
@@ -221,6 +234,8 @@ WaitState(aout_stream_t *stream, aaudio_result_t wait_state)
     if (sys->error)
         return VLC_EGENERIC;
 
+    assert(sys->as);
+
     aaudio_stream_state_t next_state = vt.AAudioStream_getState(sys->as);
     aaudio_stream_state_t current_state = next_state;
 
@@ -244,8 +259,12 @@ GetState(aout_stream_t *stream)
 {
     struct sys *sys = stream->sys;
 
-    return sys->error ? AAUDIO_STREAM_STATE_UNINITIALIZED
-                      : vt.AAudioStream_getState(sys->as);
+    if (sys->error)
+        return AAUDIO_STREAM_STATE_UNINITIALIZED;
+
+    assert(sys->as);
+
+    return vt.AAudioStream_getState(sys->as);
 }
 
 #define Request(x) do { \
@@ -329,7 +348,12 @@ GetFrameTimestampLocked(aout_stream_t *stream, int64_t *pos_frames,
     aaudio_result_t result =
             vt.AAudioStream_getTimestamp(sys->as, CLOCK_MONOTONIC,
                                          pos_frames, &time_ns);
-    if (result != AAUDIO_OK || *pos_frames <= 0)
+    if (result != AAUDIO_OK)
+    {
+        LogAAudioError(stream, "AAudioStream_getTimestamp failed", result);
+        return VLC_EGENERIC;
+    }
+    if (*pos_frames <= 0)
         return VLC_EGENERIC;
 
     *frame_time_us = VLC_TICK_FROM_NS(time_ns);
@@ -347,6 +371,7 @@ DataCallback(AAudioStream *as, void *user, void *data_, int32_t num_frames)
     uint8_t *data = data_;
 
     vlc_mutex_lock(&sys->lock);
+    aaudio_stream_state_t state = GetState(stream);
 
     if (!sys->started)
     {
@@ -414,7 +439,8 @@ DataCallback(AAudioStream *as, void *user, void *data_, int32_t num_frames)
 
         int64_t pos_frames;
         vlc_tick_t system_ts;
-        if (sys->timing_report_last_written_bytes >= sys->timing_report_delay_bytes
+        if (state == AAUDIO_STREAM_STATE_STARTED
+         && sys->timing_report_last_written_bytes >= sys->timing_report_delay_bytes
          && GetFrameTimestampLocked(stream, &pos_frames, &system_ts) == VLC_SUCCESS)
         {
             sys->timing_report_last_written_bytes = 0;
@@ -423,8 +449,6 @@ DataCallback(AAudioStream *as, void *user, void *data_, int32_t num_frames)
             sys->timing_report_delay_bytes =
                 TicksToBytes(sys, TIMING_REPORT_DELAY_TICKS);
 
-            pos_frames -= sys->frames_flush_pos;
-            assert(pos_frames > 0);
             vlc_tick_t pos_ticks = FramesToTicks(sys, pos_frames);
 
             /* Add the start silence to the system time and don't subtract
@@ -466,14 +490,116 @@ ErrorCallback(AAudioStream *as, void *user, aaudio_result_t error)
 }
 
 static void
+CloseAAudioStream(aout_stream_t *stream)
+{
+    struct sys *sys = stream->sys;
+
+    RequestStop(stream);
+
+    if (WaitState(stream, AAUDIO_STREAM_STATE_STOPPED) != VLC_SUCCESS)
+        msg_Warn(stream, "Error waiting for stopped state");
+
+    vt.AAudioStream_close(sys->as);
+
+    sys->as = NULL;
+}
+
+static int
+OpenAAudioStream(aout_stream_t *stream)
+{
+    struct sys *sys = stream->sys;
+    aaudio_result_t result;
+
+    AAudioStreamBuilder *builder;
+    result = vt.AAudio_createStreamBuilder(&builder);
+    if (result != AAUDIO_OK)
+    {
+        LogAAudioError(stream, "Failed to create AAudio stream builder", result);
+        return VLC_EGENERIC;
+    }
+
+    vt.AAudioStreamBuilder_setFormat(builder, sys->cfg.format);
+    vt.AAudioStreamBuilder_setChannelCount(builder, sys->fmt.i_channels);
+
+    /* Setup the session-id */
+    vt.AAudioStreamBuilder_setSessionId(builder, sys->cfg.session_id);
+
+    /* Setup the role */
+    char *vlc_role = var_InheritString(stream, "role");
+    if (vlc_role != NULL)
+    {
+        aaudio_usage_t usage = GetUsageFromVLCRole(vlc_role);
+        vt.AAudioStreamBuilder_setUsage(builder, usage);
+        free(vlc_role);
+    } /* else if not set, default is MEDIA usage */
+
+    vt.AAudioStreamBuilder_setDataCallback(builder, DataCallback, stream);
+    vt.AAudioStreamBuilder_setErrorCallback(builder, ErrorCallback, stream);
+
+    if (sys->cfg.low_latency)
+        vt.AAudioStreamBuilder_setPerformanceMode(builder,
+            AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
+
+    if (sys->cfg.device_id != AAUDIO_UNSPECIFIED)
+        vt.AAudioStreamBuilder_setDeviceId(builder, sys->cfg.device_id);
+
+    AAudioStream *as;
+    result = vt.AAudioStreamBuilder_openStream(builder, &as);
+    if (result != AAUDIO_OK)
+    {
+        LogAAudioError(stream, "Failed to open AAudio stream", result);
+        vt.AAudioStreamBuilder_delete(builder);
+        return VLC_EGENERIC;
+    }
+    vt.AAudioStreamBuilder_delete(builder);
+
+    sys->as = as;
+
+    return VLC_SUCCESS;
+}
+
+static void
+PrepareAudioFormat(aout_stream_t *stream, audio_sample_format_t *fmt)
+{
+    struct sys *sys = stream->sys;
+
+    sys->cfg.device_id = AAUDIO_UNSPECIFIED;
+
+    sys->cfg.session_id = var_InheritInteger(stream, "audiotrack-session-id");
+    if (sys->cfg.session_id == 0)
+        sys->cfg.session_id = AAUDIO_SESSION_ID_ALLOCATE;
+
+    if (fmt->i_format == VLC_CODEC_S16N)
+        sys->cfg.format = AAUDIO_FORMAT_PCM_I16;
+    else
+    {
+        if (fmt->i_format != VLC_CODEC_FL32)
+        {
+            /* override to request conversion */
+            fmt->i_format = VLC_CODEC_FL32;
+            fmt->i_bytes_per_frame = 4 * fmt->i_channels;
+        }
+        sys->cfg.format = AAUDIO_FORMAT_PCM_FLOAT;
+    }
+
+    if (fmt->channel_type == AUDIO_CHANNEL_TYPE_AMBISONICS)
+    {
+        fmt->channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
+        sys->cfg.low_latency = true;
+    }
+    else
+        sys->cfg.low_latency = false;
+
+    sys->fmt = *fmt;
+}
+
+static void
 Play(aout_stream_t *stream, vlc_frame_t *frame, vlc_tick_t date)
 {
     struct sys *sys = stream->sys;
-    assert(sys->as);
 
     aaudio_stream_state_t state = GetState(stream);
-    if (state == AAUDIO_STREAM_STATE_OPEN
-     || state == AAUDIO_STREAM_STATE_FLUSHED)
+    if (state == AAUDIO_STREAM_STATE_OPEN)
     {
         if (RequestStart(stream) != VLC_SUCCESS)
             goto bailout;
@@ -485,6 +611,8 @@ Play(aout_stream_t *stream, vlc_frame_t *frame, vlc_tick_t date)
         assert(state == AAUDIO_STREAM_STATE_STARTING
             || state == AAUDIO_STREAM_STATE_STARTED);
     }
+
+    assert(sys->as);
 
     vlc_mutex_lock(&sys->lock);
 
@@ -555,7 +683,6 @@ Flush(aout_stream_t *stream)
     aaudio_stream_state_t state = GetState(stream);
 
     if (state == AAUDIO_STREAM_STATE_UNINITIALIZED
-     || state == AAUDIO_STREAM_STATE_FLUSHED
      || state == AAUDIO_STREAM_STATE_OPEN)
         return;
 
@@ -571,7 +698,14 @@ Flush(aout_stream_t *stream)
      && WaitState(stream, AAUDIO_STREAM_STATE_PAUSED) != VLC_SUCCESS)
         return;
 
-    /* No lock needed since the DataCallback stop being called (paused) */
+    if (RequestFlush(stream) != VLC_SUCCESS)
+        return;
+
+    if (WaitState(stream, AAUDIO_STREAM_STATE_FLUSHED) != VLC_SUCCESS)
+        return;
+
+    CloseAAudioStream(stream);
+
     vlc_frame_ChainRelease(sys->frame_chain);
     sys->frame_chain = NULL;
     sys->frame_last = &sys->frame_chain;
@@ -585,15 +719,21 @@ Flush(aout_stream_t *stream)
     sys->timing_report_delay_bytes = 0;
     sys->underrun_bytes = 0;
 
-    vlc_tick_t unused;
-    if (GetFrameTimestampLocked(stream, &sys->frames_flush_pos, &unused) != VLC_SUCCESS)
-        msg_Warn(stream, "Flush: can't get paused position");
-
-    if (RequestFlush(stream) != VLC_SUCCESS)
+    int ret = OpenAAudioStream(stream);
+    if (ret != VLC_SUCCESS)
+    {
+        sys->error = true;
         return;
+    }
 
-    if (WaitState(stream, AAUDIO_STREAM_STATE_FLUSHED) != VLC_SUCCESS)
-        return;
+    int32_t new_rate = vt.AAudioStream_getSampleRate(sys->as);
+    assert(new_rate > 0);
+    if ((unsigned) new_rate != sys->fmt.i_rate)
+    {
+        msg_Err(stream, "rate changed after flush, from %u to %d",
+                sys->fmt.i_rate, new_rate);
+        aout_stream_RestartRequest(stream, AOUT_RESTART_OUTPUT);
+    }
 }
 
 static void
@@ -652,96 +792,13 @@ MuteSet(aout_stream_t *stream, bool mute)
         msg_Warn(stream, "failed to mute via DynamicsProcessing");
 }
 
-static int OpenAAudioStream(aout_stream_t *stream, audio_sample_format_t *fmt)
-{
-    struct sys *sys = stream->sys;
-    aaudio_result_t result;
-
-    AAudioStreamBuilder *builder;
-    result = vt.AAudio_createStreamBuilder(&builder);
-    if (result != AAUDIO_OK)
-    {
-        LogAAudioError(stream, "Failed to create AAudio stream builder", result);
-        return VLC_EGENERIC;
-    }
-
-    aaudio_format_t format;
-    if (fmt->i_format == VLC_CODEC_S16N)
-        format = AAUDIO_FORMAT_PCM_I16;
-    else
-    {
-        if (fmt->i_format != VLC_CODEC_FL32)
-        {
-            /* override to request conversion */
-            fmt->i_format = VLC_CODEC_FL32;
-            fmt->i_bytes_per_frame = 4 * fmt->i_channels;
-        }
-        format = AAUDIO_FORMAT_PCM_FLOAT;
-    }
-
-    vt.AAudioStreamBuilder_setFormat(builder, format);
-    vt.AAudioStreamBuilder_setChannelCount(builder, fmt->i_channels);
-
-    /* Setup the session-id */
-    int32_t session_id = var_InheritInteger(stream, "audiotrack-session-id");
-    if (session_id == 0)
-        session_id = AAUDIO_SESSION_ID_ALLOCATE;
-    vt.AAudioStreamBuilder_setSessionId(builder, session_id);
-
-    /* Setup the role */
-    char *vlc_role = var_InheritString(stream, "role");
-    if (vlc_role != NULL)
-    {
-        aaudio_usage_t usage = GetUsageFromVLCRole(vlc_role);
-        vt.AAudioStreamBuilder_setUsage(builder, usage);
-        free(vlc_role);
-    } /* else if not set, default is MEDIA usage */
-
-    bool low_latency = false;
-    if (fmt->channel_type == AUDIO_CHANNEL_TYPE_AMBISONICS)
-    {
-        fmt->channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
-        low_latency = true;
-    }
-
-    vt.AAudioStreamBuilder_setDataCallback(builder, DataCallback, stream);
-    vt.AAudioStreamBuilder_setErrorCallback(builder, ErrorCallback, stream);
-
-    if (low_latency)
-        vt.AAudioStreamBuilder_setPerformanceMode(builder,
-            AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-
-    AAudioStream *as;
-    result = vt.AAudioStreamBuilder_openStream(builder, &as);
-    if (result != AAUDIO_OK)
-    {
-        LogAAudioError(stream, "Failed to open AAudio stream", result);
-        vt.AAudioStreamBuilder_delete(builder);
-        return VLC_EGENERIC;
-    }
-    vt.AAudioStreamBuilder_delete(builder);
-
-    /* Use the native sample rate of the device */
-    fmt->i_rate = vt.AAudioStream_getSampleRate(as);
-    assert(fmt->i_rate > 0);
-
-    sys->as = as;
-    sys->fmt = *fmt;
-
-    return VLC_SUCCESS;
-}
-
 static void
 Stop(aout_stream_t *stream)
 {
     struct sys *sys = stream->sys;
 
-    RequestStop(stream);
-
-    if (WaitState(stream, AAUDIO_STREAM_STATE_STOPPED) == VLC_SUCCESS)
-        vt.AAudioStream_close(sys->as);
-    else
-        msg_Warn(stream, "Error waiting for stopped state");
+    if (sys->as != NULL)
+        CloseAAudioStream(stream);
 
     if (sys->dp != NULL)
         DynamicsProcessing_Delete(stream, sys->dp);
@@ -769,7 +826,6 @@ Start(aout_stream_t *stream, audio_sample_format_t *fmt,
 
     sys->volume = 1.0f;
     sys->muted = false;
-    sys->frames_flush_pos = 0;
     sys->error = false;
 
     vlc_mutex_init(&sys->lock);
@@ -784,22 +840,30 @@ Start(aout_stream_t *stream, audio_sample_format_t *fmt,
     sys->timing_report_last_written_bytes = 0;
     sys->timing_report_delay_bytes = 0;
 
-    int ret = OpenAAudioStream(stream, fmt);
+    PrepareAudioFormat(stream, fmt);
+
+    int ret = OpenAAudioStream(stream);
     if (ret != VLC_SUCCESS)
     {
         free(sys);
         return ret;
     }
 
-    int32_t session_id = vt.AAudioStream_getSessionId(sys->as);
+    /* Use the native sample rate of the device */
+    sys->fmt.i_rate = fmt->i_rate = vt.AAudioStream_getSampleRate(sys->as);
+    assert(fmt->i_rate > 0);
 
-    if (session_id != AAUDIO_SESSION_ID_NONE)
-        sys->dp = DynamicsProcessing_New(stream, session_id);
+    sys->cfg.session_id = vt.AAudioStream_getSessionId(sys->as);
+
+    if (sys->cfg.session_id != AAUDIO_SESSION_ID_NONE)
+        sys->dp = DynamicsProcessing_New(stream, sys->cfg.session_id);
     else
         sys->dp = NULL;
 
     if (sys->dp == NULL)
         msg_Warn(stream, "failed to attach DynamicsProcessing to the stream)");
+
+    sys->cfg.device_id = vt.AAudioStream_getDeviceId(sys->as);
 
     stream->stop = Stop;
     stream->play = Play;

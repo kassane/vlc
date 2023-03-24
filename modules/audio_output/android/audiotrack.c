@@ -33,8 +33,10 @@
 #include <vlc_common.h>
 #include <vlc_plugin.h>
 #include <vlc_aout.h>
-#include "../video_output/android/utils.h"
+#include "../video_output/android/env.h"
 #include "device.h"
+#include "audioformat_jni.h"
+#include "dynamicsprocessing_jni.h"
 
 #define SMOOTHPOS_SAMPLE_COUNT 10
 #define SMOOTHPOS_INTERVAL_US VLC_TICK_FROM_MS(30) // 30ms
@@ -43,13 +45,7 @@
 
 #define AUDIOTRACK_MAX_BUFFER_US VLC_TICK_FROM_MS(750) // 750ms
 
-static void Stop( aout_stream_t * );
-static void Play( aout_stream_t *, block_t *, vlc_tick_t );
-static void Flush( aout_stream_t * );
-static void Pause( aout_stream_t *, bool, vlc_tick_t );
-static void VolumeSet( aout_stream_t *, float );
-static void MuteSet( aout_stream_t *, bool );
-static void *AudioTrack_Thread( void * );
+#define TIMING_REPORT_DELAY_TICKS VLC_TICK_FROM_MS(1000)
 
 typedef struct
 {
@@ -76,23 +72,10 @@ typedef struct
     /* Used by AudioTrack_GetTimestampPositionUs */
     struct {
         jobject p_obj; /* AudioTimestamp ref */
-        vlc_tick_t i_frame_us;
 
         jlong i_frame_post_last;
         uint64_t i_frame_wrap_count;
-        uint64_t i_frame_pos;
-
-        vlc_tick_t i_last_time;
     } timestamp;
-
-    /* Used by AudioTrack_GetSmoothPositionUs */
-    struct {
-        uint32_t i_idx;
-        uint32_t i_count;
-        vlc_tick_t p_us[SMOOTHPOS_SAMPLE_COUNT];
-        vlc_tick_t i_us;
-        vlc_tick_t i_last_time;
-    } smoothpos;
 
     uint32_t i_max_audiotrack_samples;
     long long i_encoding_flags;
@@ -110,7 +93,6 @@ typedef struct
 
     vlc_thread_t thread;    /* AudioTrack_Thread */
     vlc_mutex_t lock;
-    vlc_cond_t aout_cond;   /* cond owned by aout */
     vlc_cond_t thread_cond; /* cond owned by AudioTrack_Thread */
 
     /* These variables need locking on read and write */
@@ -131,12 +113,16 @@ typedef struct
 
     vlc_frame_t *frame_chain;
     vlc_frame_t **frame_last;
+
+    /* Bytes written since the last timing report */
+    size_t timing_report_last_written_bytes;
+    /* Number of bytes to write before sending a timing report */
+    size_t timing_report_delay_bytes;
 } aout_sys_t;
 
 
 // Don't use Float for now since 5.1/7.1 Float is down sampled to Stereo Float
 //#define AUDIOTRACK_USE_FLOAT
-//#define AUDIOTRACK_HW_LATENCY
 
 /* Get AudioTrack native sample rate: if activated, most of  the resampling
  * will be done by VLC */
@@ -187,20 +173,8 @@ static struct
     struct {
         jint ENCODING_PCM_8BIT;
         jint ENCODING_PCM_16BIT;
-        jint ENCODING_PCM_32BIT;
-        bool has_ENCODING_PCM_32BIT;
         jint ENCODING_PCM_FLOAT;
         bool has_ENCODING_PCM_FLOAT;
-        jint ENCODING_AC3;
-        bool has_ENCODING_AC3;
-        jint ENCODING_E_AC3;
-        bool has_ENCODING_E_AC3;
-        jint ENCODING_DOLBY_TRUEHD;
-        bool has_ENCODING_DOLBY_TRUEHD;
-        jint ENCODING_DTS;
-        bool has_ENCODING_DTS;
-        jint ENCODING_DTS_HD;
-        bool has_ENCODING_DTS_HD;
         jint ENCODING_IEC61937;
         bool has_ENCODING_IEC61937;
         jint CHANNEL_OUT_MONO;
@@ -236,20 +210,19 @@ static struct
         jfieldID framePosition;
         jfieldID nanoTime;
     } AudioTimestamp;
-    struct DynamicsProcessing_fields DynamicsProcessing;
+
 } jfields;
 
 /* init all jni fields.
  * Done only one time during the first initialisation */
-int
-AudioTrack_InitJNI( audio_output_t *p_aout,
-                    struct DynamicsProcessing_fields *dp_fields )
+static int
+AudioTrack_InitJNI( vlc_object_t *p_aout)
 {
     static vlc_mutex_t lock = VLC_STATIC_MUTEX;
     static int i_init_state = -1;
     jclass clazz;
     jfieldID field;
-    JNIEnv *env = android_getEnv( VLC_OBJECT(p_aout), THREAD_NAME );
+    JNIEnv *env = android_getEnv( p_aout, THREAD_NAME );
 
     if( env == NULL )
         return VLC_EGENERIC;
@@ -327,9 +300,7 @@ AudioTrack_InitJNI( audio_output_t *p_aout,
     GET_ID( GetMethodID, AudioTrack.getBufferSizeInFrames,
             "getBufferSizeInFrames", "()I", false );
 
-#ifdef AUDIOTRACK_HW_LATENCY
     GET_ID( GetMethodID, AudioTrack.getLatency, "getLatency", "()I", false );
-#endif
 
     GET_ID( GetMethodID, AudioTrack.getTimestamp,
             "getTimestamp", "(Landroid/media/AudioTimestamp;)Z", false );
@@ -402,8 +373,6 @@ AudioTrack_InitJNI( audio_output_t *p_aout,
     GET_CLASS( "android/media/AudioFormat", true );
     GET_CONST_INT( AudioFormat.ENCODING_PCM_8BIT, "ENCODING_PCM_8BIT", true );
     GET_CONST_INT( AudioFormat.ENCODING_PCM_16BIT, "ENCODING_PCM_16BIT", true );
-    GET_CONST_INT( AudioFormat.ENCODING_PCM_32BIT, "ENCODING_PCM_32BIT", false );
-    jfields.AudioFormat.has_ENCODING_PCM_32BIT = field != NULL;
 
 #ifdef AUDIOTRACK_USE_FLOAT
     GET_CONST_INT( AudioFormat.ENCODING_PCM_FLOAT, "ENCODING_PCM_FLOAT",
@@ -421,20 +390,6 @@ AudioTrack_InitJNI( audio_output_t *p_aout,
     }
     else
         jfields.AudioFormat.has_ENCODING_IEC61937 = false;
-
-    GET_CONST_INT( AudioFormat.ENCODING_AC3, "ENCODING_AC3", false );
-    jfields.AudioFormat.has_ENCODING_AC3 = field != NULL;
-    GET_CONST_INT( AudioFormat.ENCODING_E_AC3, "ENCODING_E_AC3", false );
-    jfields.AudioFormat.has_ENCODING_E_AC3 = field != NULL;
-
-    GET_CONST_INT( AudioFormat.ENCODING_DTS, "ENCODING_DTS", false );
-    jfields.AudioFormat.has_ENCODING_DTS = field != NULL;
-    GET_CONST_INT( AudioFormat.ENCODING_DTS_HD, "ENCODING_DTS_HD", false );
-    jfields.AudioFormat.has_ENCODING_DTS_HD = field != NULL;
-
-    GET_CONST_INT( AudioFormat.ENCODING_DOLBY_TRUEHD, "ENCODING_DOLBY_TRUEHD",
-                   false );
-    jfields.AudioFormat.has_ENCODING_DOLBY_TRUEHD = field != NULL;
 
     GET_CONST_INT( AudioFormat.CHANNEL_OUT_MONO, "CHANNEL_OUT_MONO", true );
     GET_CONST_INT( AudioFormat.CHANNEL_OUT_STEREO, "CHANNEL_OUT_STEREO", true );
@@ -459,27 +414,6 @@ AudioTrack_InitJNI( audio_output_t *p_aout,
     GET_CONST_INT( AudioManager.ERROR_DEAD_OBJECT, "ERROR_DEAD_OBJECT", false );
     jfields.AudioManager.has_ERROR_DEAD_OBJECT = field != NULL;
     GET_CONST_INT( AudioManager.STREAM_MUSIC, "STREAM_MUSIC", true );
-
-    /* Don't use DynamicsProcessing before Android 12 since it may crash
-     * randomly, cf. videolan/vlc-android#2221.
-     *
-     * ENCODING_PCM_32BIT is available on API 31, so test its availability to
-     * check if we are running Android 12 */
-    if( jfields.AudioFormat.has_ENCODING_PCM_32BIT )
-    {
-        GET_CLASS( "android/media/audiofx/DynamicsProcessing", false );
-        if( clazz )
-        {
-            jfields.DynamicsProcessing.clazz = (jclass) (*env)->NewGlobalRef( env, clazz );
-            CHECK_EXCEPTION( "NewGlobalRef", true );
-            GET_ID( GetMethodID, DynamicsProcessing.ctor, "<init>", "(I)V", true );
-            GET_ID( GetMethodID, DynamicsProcessing.setInputGainAllChannelsTo,
-                    "setInputGainAllChannelsTo", "(F)V", true );
-            GET_ID( GetMethodID, DynamicsProcessing.setEnabled,
-                    "setEnabled", "(Z)I", true );
-        }
-    }
-    *dp_fields = jfields.DynamicsProcessing;
 
 #undef CHECK_EXCEPTION
 #undef GET_CLASS
@@ -610,25 +544,6 @@ AudioTrack_ResetWrapCount( JNIEnv *env, aout_stream_t *stream )
 }
 
 /**
- * Reset AudioTrack SmoothPosition and TimestampPosition
- */
-static void
-AudioTrack_ResetPositions( JNIEnv *env, aout_stream_t *stream )
-{
-    aout_sys_t *p_sys = stream->sys;
-    VLC_UNUSED( env );
-
-    p_sys->timestamp.i_last_time = 0;
-    p_sys->timestamp.i_frame_us = 0;
-    p_sys->timestamp.i_frame_pos = 0;
-
-    p_sys->smoothpos.i_count = 0;
-    p_sys->smoothpos.i_idx = 0;
-    p_sys->smoothpos.i_last_time = 0;
-    p_sys->smoothpos.i_us = 0;
-}
-
-/**
  * Reset all AudioTrack positions and internal state
  */
 static void
@@ -636,9 +551,10 @@ AudioTrack_Reset( JNIEnv *env, aout_stream_t *stream )
 {
     aout_sys_t *p_sys = stream->sys;
 
-    AudioTrack_ResetPositions( env, stream );
     AudioTrack_ResetWrapCount( env, stream );
     p_sys->i_samples_written = 0;
+    p_sys->timing_report_last_written_bytes = 0;
+    p_sys->timing_report_delay_bytes = 0;
 }
 
 static vlc_tick_t
@@ -662,179 +578,6 @@ AudioTrack_GetLatencyUs( JNIEnv *env, aout_stream_t *stream )
     }
 
     return 0;
-}
-
-/**
- * Get a smooth AudioTrack position
- *
- * This function smooth out the AudioTrack position since it has a very bad
- * precision (+/- 20ms on old devices).
- */
-static vlc_tick_t
-AudioTrack_GetSmoothPositionUs( JNIEnv *env, aout_stream_t *stream )
-{
-    aout_sys_t *p_sys = stream->sys;
-    uint64_t i_audiotrack_us;
-    vlc_tick_t i_now = vlc_tick_now();
-
-    /* Fetch an AudioTrack position every SMOOTHPOS_INTERVAL_US (30ms) */
-    if( i_now - p_sys->smoothpos.i_last_time >= SMOOTHPOS_INTERVAL_US )
-    {
-        i_audiotrack_us = FRAMES_TO_US( AudioTrack_getPlaybackHeadPosition( env, stream ) );
-        if( i_audiotrack_us == 0 )
-            goto bailout;
-
-        p_sys->smoothpos.i_last_time = i_now;
-
-        /* Base the position off the current time */
-        p_sys->smoothpos.p_us[p_sys->smoothpos.i_idx] = i_audiotrack_us - i_now;
-        p_sys->smoothpos.i_idx = (p_sys->smoothpos.i_idx + 1)
-                                 % SMOOTHPOS_SAMPLE_COUNT;
-        if( p_sys->smoothpos.i_count < SMOOTHPOS_SAMPLE_COUNT )
-            p_sys->smoothpos.i_count++;
-
-        /* Calculate the average position based off the current time */
-        p_sys->smoothpos.i_us = 0;
-        for( uint32_t i = 0; i < p_sys->smoothpos.i_count; ++i )
-            p_sys->smoothpos.i_us += p_sys->smoothpos.p_us[i];
-        p_sys->smoothpos.i_us /= p_sys->smoothpos.i_count;
-
-    }
-    if( p_sys->smoothpos.i_us != 0 )
-        return p_sys->smoothpos.i_us + i_now - AudioTrack_GetLatencyUs( env, stream );
-
-bailout:
-    return 0;
-}
-
-static vlc_tick_t
-AudioTrack_GetTimestampPositionUs( JNIEnv *env, aout_stream_t *stream )
-{
-    aout_sys_t *p_sys = stream->sys;
-    vlc_tick_t i_now;
-
-    if( !p_sys->timestamp.p_obj )
-        return 0;
-
-    i_now = vlc_tick_now();
-
-    /* Android doc:
-     * getTimestamp: Poll for a timestamp on demand.
-     *
-     * If you need to track timestamps during initial warmup or after a
-     * routing or mode change, you should request a new timestamp once per
-     * second until the reported timestamps show that the audio clock is
-     * stable. Thereafter, query for a new timestamp approximately once
-     * every 10 seconds to once per minute. Calling this method more often
-     * is inefficient. It is also counter-productive to call this method
-     * more often than recommended, because the short-term differences
-     * between successive timestamp reports are not meaningful. If you need
-     * a high-resolution mapping between frame position and presentation
-     * time, consider implementing that at application level, based on
-     * low-resolution timestamps.
-     */
-
-    /* Fetch an AudioTrack timestamp every AUDIOTIMESTAMP_INTERVAL_US (500ms) */
-    if( i_now - p_sys->timestamp.i_last_time >= AUDIOTIMESTAMP_INTERVAL_US )
-    {
-        if( JNI_AT_CALL_BOOL( getTimestamp, p_sys->timestamp.p_obj ) )
-        {
-            p_sys->timestamp.i_frame_us = VLC_TICK_FROM_NS(JNI_AUDIOTIMESTAMP_GET_LONG( nanoTime ));
-
-            /* the low-order 32 bits of position is in wrapping frame units
-             * similar to AudioTrack#getPlaybackHeadPosition. */
-            jlong i_frame_post_last = JNI_AUDIOTIMESTAMP_GET_LONG( framePosition );
-            if( p_sys->timestamp.i_frame_post_last > i_frame_post_last )
-                p_sys->timestamp.i_frame_wrap_count++;
-            p_sys->timestamp.i_frame_post_last = i_frame_post_last;
-            p_sys->timestamp.i_frame_pos = i_frame_post_last
-                                         + (p_sys->timestamp.i_frame_wrap_count << 32);
-
-            /* frame time should be after last play time
-             * frame time shouldn't be in the future
-             * frame time should be less than 10 seconds old */
-            if( p_sys->timestamp.i_frame_us != 0 && p_sys->timestamp.i_frame_pos != 0
-             && i_now > p_sys->timestamp.i_frame_us
-             && ( i_now - p_sys->timestamp.i_frame_us ) <= VLC_TICK_FROM_SEC(10) )
-                p_sys->timestamp.i_last_time = i_now;
-            else
-            {
-                p_sys->timestamp.i_last_time = 0;
-                p_sys->timestamp.i_frame_us = 0;
-            }
-        }
-        else
-            p_sys->timestamp.i_frame_us = 0;
-    }
-
-    if( p_sys->timestamp.i_frame_us != 0 )
-    {
-        vlc_tick_t i_time_diff = i_now - p_sys->timestamp.i_frame_us;
-        jlong i_frames_diff = samples_from_vlc_tick(i_time_diff, p_sys->fmt.i_rate);
-        return FRAMES_TO_US( p_sys->timestamp.i_frame_pos + i_frames_diff );
-    } else
-        return 0;
-}
-
-static int
-TimeGet( aout_stream_t *stream, vlc_tick_t *restrict p_delay )
-{
-    aout_sys_t *p_sys = stream->sys;
-    vlc_tick_t i_audiotrack_us;
-    JNIEnv *env;
-
-    if( p_sys->b_passthrough )
-        return -1;
-
-    vlc_mutex_lock( &p_sys->lock );
-
-    if( p_sys->b_error || !p_sys->i_samples_written || !( env = GET_ENV() ) )
-        goto bailout;
-
-    i_audiotrack_us = AudioTrack_GetTimestampPositionUs( env, stream );
-
-    if( i_audiotrack_us <= 0 )
-        i_audiotrack_us = AudioTrack_GetSmoothPositionUs(env, stream );
-
-/* Debug log for both delays */
-#if 0
-{
-    vlc_tick_t i_ts_us = AudioTrack_GetTimestampPositionUs( env, stream );
-    vlc_tick_t i_smooth_us = AudioTrack_GetSmoothPositionUs(env, stream );
-    vlc_tick_t i_latency_us = AudioTrack_GetLatencyUs( env, stream );
-
-    msg_Err( stream, "TimeGet: TimeStamp: %"PRId64", Smooth: %"PRId64" (latency: %"PRId64")",
-             i_ts_us, i_smooth_us, i_latency_us );
-}
-#endif
-
-    if( i_audiotrack_us > 0 )
-    {
-        /* AudioTrack delay */
-        vlc_tick_t i_delay = FRAMES_TO_US( p_sys->i_samples_written )
-                        - i_audiotrack_us;
-        if( i_delay >= 0 )
-        {
-            /* Frame FIFO + jarray delay */
-            size_t total_size;
-            vlc_frame_ChainProperties(p_sys->frame_chain, NULL, &total_size, NULL);
-            i_delay += BYTES_TO_US(total_size + p_sys->jbuffer.size
-                                   - p_sys->jbuffer.offset);
-
-            *p_delay = i_delay;
-            vlc_mutex_unlock( &p_sys->lock );
-            return 0;
-        }
-        else
-        {
-            msg_Warn( stream, "timing screwed, reset positions" );
-            AudioTrack_ResetPositions( env, stream );
-        }
-    }
-
-bailout:
-    vlc_mutex_unlock( &p_sys->lock );
-    return -1;
 }
 
 static void
@@ -1104,434 +847,6 @@ AudioTrack_Create( JNIEnv *env, aout_stream_t *stream,
     p_sys->audiotrack_args.i_size = i_size;
 
     return 0;
-}
-
-bool
-AudioTrack_HasEncoding( long long encoding_flags, vlc_fourcc_t i_format )
-{
-#define MATCH_ENCODING_FLAG(x) jfields.AudioFormat.has_##x && \
-    (encoding_flags == 0 || encoding_flags & (1 << jfields.AudioFormat.x) )
-
-    switch( i_format )
-    {
-        case VLC_CODEC_DTSHD:
-            return MATCH_ENCODING_FLAG( ENCODING_DTS_HD );
-        case VLC_CODEC_DTS:
-            return MATCH_ENCODING_FLAG( ENCODING_DTS );
-        case VLC_CODEC_A52:
-            return MATCH_ENCODING_FLAG( ENCODING_AC3 );
-        case VLC_CODEC_EAC3:
-            return MATCH_ENCODING_FLAG( ENCODING_E_AC3 );
-        case VLC_CODEC_TRUEHD:
-        case VLC_CODEC_MLP:
-            return MATCH_ENCODING_FLAG( ENCODING_DOLBY_TRUEHD );
-        default:
-            return true;
-    }
-}
-
-static int GetPassthroughFmt( bool compat, audio_sample_format_t *fmt, int *at_format )
-{
-    if( !compat && jfields.AudioFormat.has_ENCODING_IEC61937 )
-    {
-        *at_format = jfields.AudioFormat.ENCODING_IEC61937;
-        switch( fmt->i_format )
-        {
-            case VLC_CODEC_TRUEHD:
-            case VLC_CODEC_MLP:
-                fmt->i_rate = 192000;
-                fmt->i_bytes_per_frame = 16;
-
-                /* AudioFormat.ENCODING_IEC61937 documentation says that the
-                 * channel layout must be stereo. Well, not for TrueHD
-                 * apparently */
-                fmt->i_physical_channels = AOUT_CHANS_7_1;
-                break;
-            case VLC_CODEC_DTS:
-                fmt->i_bytes_per_frame = 4;
-                fmt->i_physical_channels = AOUT_CHANS_STEREO;
-                break;
-            case VLC_CODEC_DTSHD:
-                fmt->i_bytes_per_frame = 4;
-                fmt->i_physical_channels = AOUT_CHANS_STEREO;
-                fmt->i_rate = 192000;
-                fmt->i_bytes_per_frame = 16;
-                break;
-            case VLC_CODEC_EAC3:
-                fmt->i_rate = 192000;
-            case VLC_CODEC_A52:
-                fmt->i_physical_channels = AOUT_CHANS_STEREO;
-                fmt->i_bytes_per_frame = 4;
-                break;
-            default:
-                return VLC_EGENERIC;
-        }
-        fmt->i_frame_length = 1;
-        fmt->i_channels = aout_FormatNbChannels( fmt );
-        fmt->i_format = VLC_CODEC_SPDIFL;
-    }
-    else
-    {
-        switch( fmt->i_format )
-        {
-            case VLC_CODEC_A52:
-                if( !jfields.AudioFormat.has_ENCODING_AC3 )
-                    return VLC_EGENERIC;
-                *at_format = jfields.AudioFormat.ENCODING_AC3;
-                break;
-            case VLC_CODEC_EAC3:
-                if( !jfields.AudioFormat.has_ENCODING_E_AC3 )
-                    return VLC_EGENERIC;
-                *at_format = jfields.AudioFormat.ENCODING_E_AC3;
-                break;
-            case VLC_CODEC_DTS:
-                if( !jfields.AudioFormat.has_ENCODING_DTS )
-                    return VLC_EGENERIC;
-                *at_format = jfields.AudioFormat.ENCODING_DTS;
-                break;
-            default:
-                return VLC_EGENERIC;
-        }
-        fmt->i_bytes_per_frame = 4;
-        fmt->i_frame_length = 1;
-        fmt->i_physical_channels = AOUT_CHANS_STEREO;
-        fmt->i_channels = 2;
-        fmt->i_format = VLC_CODEC_SPDIFB;
-    }
-
-    return VLC_SUCCESS;
-}
-
-static int
-StartPassthrough( JNIEnv *env, aout_stream_t *stream )
-{
-    aout_sys_t *p_sys = stream->sys;
-
-    if( !AudioTrack_HasEncoding( p_sys->i_encoding_flags, p_sys->fmt.i_format ) )
-        return VLC_EGENERIC;
-
-    /* Try ENCODING_IEC61937 first, then fallback to ENCODING_[AC3|DTS|...] */
-    unsigned nb_fmt = jfields.AudioFormat.has_ENCODING_IEC61937 ? 2 : 1;
-    int i_ret;
-    for( unsigned i = 0; i < nb_fmt; ++i )
-    {
-        int i_at_format;
-        bool compat = i == 1;
-        audio_sample_format_t fmt = p_sys->fmt;
-
-        i_ret = GetPassthroughFmt( compat, &fmt, &i_at_format );
-        if( i_ret != VLC_SUCCESS )
-            return i_ret;
-
-        p_sys->b_passthrough = true;
-        i_ret = AudioTrack_Create( env, stream, fmt.i_rate, i_at_format,
-                                   fmt.i_physical_channels );
-
-        if( i_ret == VLC_SUCCESS )
-        {
-            msg_Dbg( stream, "Using passthrough format: %d", i_at_format );
-            p_sys->i_chans_to_reorder = 0;
-            p_sys->fmt = fmt;
-            return VLC_SUCCESS;
-        }
-    }
-
-    p_sys->b_passthrough = false;
-    msg_Warn( stream, "SPDIF configuration failed" );
-    return VLC_EGENERIC;
-}
-
-static int
-StartPCM( JNIEnv *env, aout_stream_t *stream, unsigned i_max_channels )
-{
-    aout_sys_t *p_sys = stream->sys;
-    unsigned i_nb_channels;
-    int i_at_format, i_ret;
-
-    if (jfields.AudioTrack.getNativeOutputSampleRate)
-        p_sys->fmt.i_rate =
-            JNI_AT_CALL_STATIC_INT( getNativeOutputSampleRate,
-                                    jfields.AudioManager.STREAM_MUSIC );
-    else
-        p_sys->fmt.i_rate = VLC_CLIP( p_sys->fmt.i_rate, 4000, 48000 );
-
-    do
-    {
-        /* We can only accept U8, S16N, FL32, and AC3 */
-        switch( p_sys->fmt.i_format )
-        {
-        case VLC_CODEC_U8:
-            i_at_format = jfields.AudioFormat.ENCODING_PCM_8BIT;
-            break;
-        case VLC_CODEC_S16N:
-            i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
-            break;
-        case VLC_CODEC_FL32:
-            if( jfields.AudioFormat.has_ENCODING_PCM_FLOAT )
-                i_at_format = jfields.AudioFormat.ENCODING_PCM_FLOAT;
-            else
-            {
-                p_sys->fmt.i_format = VLC_CODEC_S16N;
-                i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
-            }
-            break;
-        default:
-            p_sys->fmt.i_format = VLC_CODEC_S16N;
-            i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
-            break;
-        }
-
-        /* Android AudioTrack supports only mono, stereo, 5.1 and 7.1.
-         * Android will downmix to stereo if audio output doesn't handle 5.1 or 7.1
-         */
-
-        i_nb_channels = aout_FormatNbChannels( &p_sys->fmt );
-        if( i_nb_channels == 0 )
-            return VLC_EGENERIC;
-        if( AOUT_FMT_LINEAR( &p_sys->fmt ) )
-            i_nb_channels = __MIN( i_max_channels, i_nb_channels );
-        if( i_nb_channels > 5 )
-        {
-            if( i_nb_channels > 7 && jfields.AudioFormat.has_CHANNEL_OUT_SIDE )
-                p_sys->fmt.i_physical_channels = AOUT_CHANS_7_1;
-            else
-                p_sys->fmt.i_physical_channels = AOUT_CHANS_5_1;
-        } else
-        {
-            if( i_nb_channels == 1 )
-                p_sys->fmt.i_physical_channels = AOUT_CHAN_LEFT;
-            else
-                p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
-        }
-
-        /* Try to create an AudioTrack with the most advanced channel and
-         * format configuration. If AudioTrack_Create fails, try again with a
-         * less advanced format (PCM S16N). If it fails again, try again with
-         * Stereo channels. */
-        i_ret = AudioTrack_Create( env, stream, p_sys->fmt.i_rate, i_at_format,
-                                   p_sys->fmt.i_physical_channels );
-        if( i_ret != 0 )
-        {
-            if( p_sys->fmt.i_format == VLC_CODEC_FL32 )
-            {
-                msg_Warn( stream, "FL32 configuration failed, "
-                                  "fallback to S16N PCM" );
-                p_sys->fmt.i_format = VLC_CODEC_S16N;
-            }
-            else if( p_sys->fmt.i_physical_channels & AOUT_CHANS_5_1 )
-            {
-                msg_Warn( stream, "5.1 or 7.1 configuration failed, "
-                                  "fallback to Stereo" );
-                p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
-            }
-            else
-                break;
-        }
-    } while( i_ret != 0 );
-
-    if( i_ret != VLC_SUCCESS )
-        return i_ret;
-
-    uint32_t p_chans_out[AOUT_CHAN_MAX];
-    memset( p_chans_out, 0, sizeof(p_chans_out) );
-    AudioTrack_GetChanOrder( p_sys->fmt.i_physical_channels, p_chans_out );
-    p_sys->i_chans_to_reorder =
-        aout_CheckChannelReorder( NULL, p_chans_out,
-                                  p_sys->fmt.i_physical_channels,
-                                  p_sys->p_chan_table );
-    aout_FormatPrepare( &p_sys->fmt );
-    return VLC_SUCCESS;
-}
-
-static int
-Start( aout_stream_t *stream, audio_sample_format_t *restrict p_fmt,
-       enum android_audio_device_type adev )
-{
-    JNIEnv *env;
-    int i_ret;
-    bool b_try_passthrough;
-    unsigned i_max_channels;
-
-    if( adev == ANDROID_AUDIO_DEVICE_ENCODED )
-    {
-        b_try_passthrough = true;
-        i_max_channels = ANDROID_AUDIO_DEVICE_MAX_CHANNELS;
-    }
-    else
-    {
-        b_try_passthrough = false;
-        i_max_channels = adev == ANDROID_AUDIO_DEVICE_STEREO ? 2 : ANDROID_AUDIO_DEVICE_MAX_CHANNELS;
-    }
-
-    if( !( env = GET_ENV() ) )
-        return VLC_EGENERIC;
-
-    aout_sys_t *p_sys = stream->sys = calloc( 1, sizeof (aout_sys_t) );
-
-    if( unlikely( p_sys == NULL ) )
-        return VLC_ENOMEM;
-
-    vlc_mutex_init(&p_sys->lock);
-    vlc_cond_init(&p_sys->aout_cond);
-    vlc_cond_init(&p_sys->thread_cond);
-
-    p_sys->volume = 1.0f;
-    p_sys->mute = false;
-
-    p_sys->fmt = *p_fmt;
-
-    aout_FormatPrint( stream, "VLC is looking for:", &p_sys->fmt );
-
-    if (p_sys->fmt.channel_type == AUDIO_CHANNEL_TYPE_AMBISONICS)
-    {
-        p_sys->fmt.channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
-
-        /* TODO: detect sink channel layout */
-        p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
-        aout_FormatPrepare(&p_sys->fmt);
-    }
-
-    if( AOUT_FMT_LINEAR( &p_sys->fmt ) )
-        i_ret = StartPCM( env, stream, i_max_channels );
-    else if( b_try_passthrough )
-        i_ret = StartPassthrough( env, stream );
-    else
-        i_ret = VLC_EGENERIC;
-
-    if( i_ret != 0 )
-    {
-        free( p_sys );
-        return VLC_EGENERIC;
-    }
-
-    if( jfields.AudioTrack.getBufferSizeInFrames )
-        p_sys->i_max_audiotrack_samples = JNI_AT_CALL_INT( getBufferSizeInFrames );
-    else
-        p_sys->i_max_audiotrack_samples = BYTES_TO_FRAMES( p_sys->audiotrack_args.i_size );
-
-#ifdef AUDIOTRACK_HW_LATENCY
-    if( jfields.AudioTimestamp.clazz )
-    {
-        /* create AudioTimestamp object */
-        jobject p_obj = JNI_CALL( NewObject, jfields.AudioTimestamp.clazz,
-                                 jfields.AudioTimestamp.ctor );
-        if( p_obj )
-        {
-            p_sys->timestamp.p_obj = (*env)->NewGlobalRef( env, p_obj );
-            (*env)->DeleteLocalRef( env, p_obj );
-        }
-        if( !p_sys->timestamp.p_obj )
-            goto error;
-    }
-#endif
-
-    p_sys->jbuffer.array = NULL;
-    p_sys->jbuffer.size = p_sys->jbuffer.offset = 0;
-    p_sys->jbuffer.maxsize = 0;
-    p_sys->frame_chain = NULL;
-    p_sys->frame_last = &p_sys->frame_chain;
-    AudioTrack_Reset( env, stream );
-
-    if( p_sys->fmt.i_format == VLC_CODEC_FL32 )
-    {
-        msg_Dbg( stream, "using WRITE_FLOATARRAY");
-        p_sys->i_write_type = WRITE_FLOATARRAY;
-    }
-    else if( p_sys->fmt.i_format == VLC_CODEC_SPDIFL )
-    {
-        assert( jfields.AudioFormat.has_ENCODING_IEC61937 );
-        msg_Dbg( stream, "using WRITE_SHORTARRAYV23");
-        p_sys->i_write_type = WRITE_SHORTARRAYV23;
-    }
-    else if( jfields.AudioTrack.writeV23 )
-    {
-        msg_Dbg( stream, "using WRITE_BYTEARRAYV23");
-        p_sys->i_write_type = WRITE_BYTEARRAYV23;
-    }
-    else if( jfields.AudioTrack.writeBufferV21 )
-    {
-        msg_Dbg( stream, "using WRITE_BYTEBUFFER");
-        p_sys->i_write_type = WRITE_BYTEBUFFER;
-    }
-    else
-    {
-        msg_Dbg( stream, "using WRITE_BYTEARRAY");
-        p_sys->i_write_type = WRITE_BYTEARRAY;
-    }
-
-    /* Run AudioTrack_Thread */
-    p_sys->b_thread_running = true;
-    p_sys->b_thread_paused = false;
-    if ( vlc_clone( &p_sys->thread, AudioTrack_Thread, stream ) )
-    {
-        msg_Err(stream, "vlc clone failed");
-        goto error;
-    }
-
-    JNI_AT_CALL_VOID( play );
-    CHECK_AT_EXCEPTION( "play" );
-
-    *p_fmt = p_sys->fmt;
-
-    aout_FormatPrint( stream, "VLC will output:", &p_sys->fmt );
-
-    stream->stop = Stop;
-    stream->play = Play;
-    stream->pause = Pause;
-    stream->flush = Flush;
-    stream->time_get = TimeGet;
-    stream->volume_set = VolumeSet;
-    stream->mute_set = MuteSet;
-
-    msg_Dbg(stream, "using AudioTrack API");
-    return VLC_SUCCESS;
-
-error:
-    Stop( stream );
-    return VLC_EGENERIC;
-}
-
-static void
-Stop( aout_stream_t *stream )
-{
-    aout_sys_t *p_sys = stream->sys;
-    JNIEnv *env;
-
-    if( !( env = GET_ENV() ) )
-        return;
-
-    /* Stop the AudioTrack thread */
-    vlc_mutex_lock( &p_sys->lock );
-    if( p_sys->b_thread_running )
-    {
-        p_sys->b_thread_running = false;
-        vlc_cond_signal( &p_sys->thread_cond );
-        vlc_mutex_unlock( &p_sys->lock );
-        vlc_join( p_sys->thread, NULL );
-    }
-    else
-        vlc_mutex_unlock(  &p_sys->lock );
-
-    /* Release the AudioTrack object */
-    if( p_sys->p_audiotrack )
-    {
-        if( !p_sys->b_audiotrack_exception )
-        {
-            JNI_AT_CALL_VOID( stop );
-            if( !CHECK_AT_EXCEPTION( "stop" ) )
-                JNI_AT_CALL_VOID( release );
-        }
-        (*env)->DeleteGlobalRef( env, p_sys->p_audiotrack );
-    }
-
-    if( p_sys->p_dp != NULL )
-        DynamicsProcessing_Delete( stream, p_sys->p_dp );
-
-    /* Release the timestamp object */
-    if( p_sys->timestamp.p_obj )
-        (*env)->DeleteGlobalRef( env, p_sys->timestamp.p_obj );
-
-    free( p_sys );
 }
 
 static void
@@ -1848,6 +1163,46 @@ AudioTrack_Write( JNIEnv *env, aout_stream_t *stream, bool b_force )
     return i_ret;
 }
 
+static int
+AudioTrack_ReportTiming( JNIEnv *env, aout_stream_t *stream )
+{
+    aout_sys_t *p_sys = stream->sys;
+
+    if( p_sys->timestamp.p_obj != NULL
+     && JNI_AT_CALL_BOOL( getTimestamp, p_sys->timestamp.p_obj ) )
+    {
+        vlc_tick_t frame_date_us =
+            VLC_TICK_FROM_NS(JNI_AUDIOTIMESTAMP_GET_LONG( nanoTime ));
+        jlong frame_post_last = JNI_AUDIOTIMESTAMP_GET_LONG( framePosition );
+
+        /* the low-order 32 bits of position is in wrapping frame units
+         * similar to AudioTrack#getPlaybackHeadPosition. */
+        if( p_sys->timestamp.i_frame_post_last > frame_post_last )
+            p_sys->timestamp.i_frame_wrap_count++;
+        p_sys->timestamp.i_frame_post_last = frame_post_last;
+        uint64_t frame_pos = frame_post_last
+                           + (p_sys->timestamp.i_frame_wrap_count << 32);
+
+        aout_stream_TimingReport( stream, frame_date_us,
+                                  FRAMES_TO_US( frame_pos ) );
+        return VLC_SUCCESS;
+    }
+
+    vlc_tick_t now = vlc_tick_now();
+    vlc_tick_t frame_us = FRAMES_TO_US( AudioTrack_getPlaybackHeadPosition( env, stream ) );
+    if( frame_us == 0 )
+        return VLC_EGENERIC;
+
+    vlc_tick_t latency_us = AudioTrack_GetLatencyUs( env, stream );
+    frame_us -= latency_us;
+
+    if( frame_us <= 0 )
+        return VLC_EGENERIC;
+    aout_stream_TimingReport( stream, now, frame_us );
+
+    return VLC_SUCCESS;
+}
+
 /**
  * This thread will play the data coming from the jbuffer buffer.
  */
@@ -1925,7 +1280,21 @@ AudioTrack_Thread( void *p_data )
             else
             {
                 i_last_time_blocked = 0;
-                vlc_cond_signal( &p_sys->aout_cond );
+
+                if( !p_sys->b_passthrough )
+                {
+                    p_sys->timing_report_last_written_bytes += i_ret;
+
+                    if( p_sys->timing_report_last_written_bytes >=
+                            p_sys->timing_report_delay_bytes
+                     && AudioTrack_ReportTiming( env, stream ) == VLC_SUCCESS )
+                    {
+                        p_sys->timing_report_last_written_bytes = 0;
+                        /* From now on, fetch the timestamp every 1 seconds */
+                        p_sys->timing_report_delay_bytes =
+                            US_TO_BYTES( TIMING_REPORT_DELAY_TICKS );
+                    }
+                }
             }
         }
 
@@ -2045,7 +1414,6 @@ Pause( aout_stream_t *stream, bool b_pause, vlc_tick_t i_date )
     } else
     {
         p_sys->b_thread_paused = false;
-        AudioTrack_ResetPositions( env, stream );
         JNI_AT_CALL_VOID( play );
         CHECK_AT_EXCEPTION( "play" );
     }
@@ -2175,6 +1543,389 @@ MuteSet( aout_stream_t *stream, bool mute )
 
     if( !p_sys->b_error && p_sys->p_audiotrack != NULL && ( env = GET_ENV() ) )
         AudioTrack_SetVolume( env, stream, mute ? 0.0f : p_sys->volume );
+}
+
+static int GetPassthroughFmt( bool compat, audio_sample_format_t *fmt, int *at_format )
+{
+    if( !compat && jfields.AudioFormat.has_ENCODING_IEC61937 )
+    {
+        *at_format = jfields.AudioFormat.ENCODING_IEC61937;
+        switch( fmt->i_format )
+        {
+            case VLC_CODEC_TRUEHD:
+            case VLC_CODEC_MLP:
+                fmt->i_rate = 192000;
+                fmt->i_bytes_per_frame = 16;
+
+                /* AudioFormat.ENCODING_IEC61937 documentation says that the
+                 * channel layout must be stereo. Well, not for TrueHD
+                 * apparently */
+                fmt->i_physical_channels = AOUT_CHANS_7_1;
+                break;
+            case VLC_CODEC_DTS:
+                fmt->i_bytes_per_frame = 4;
+                fmt->i_physical_channels = AOUT_CHANS_STEREO;
+                break;
+            case VLC_CODEC_DTSHD:
+                fmt->i_bytes_per_frame = 4;
+                fmt->i_physical_channels = AOUT_CHANS_STEREO;
+                fmt->i_rate = 192000;
+                fmt->i_bytes_per_frame = 16;
+                break;
+            case VLC_CODEC_EAC3:
+                fmt->i_rate = 192000;
+            case VLC_CODEC_A52:
+                fmt->i_physical_channels = AOUT_CHANS_STEREO;
+                fmt->i_bytes_per_frame = 4;
+                break;
+            default:
+                return VLC_EGENERIC;
+        }
+        fmt->i_frame_length = 1;
+        fmt->i_channels = aout_FormatNbChannels( fmt );
+        fmt->i_format = VLC_CODEC_SPDIFL;
+    }
+    else
+    {
+        if( vlc_android_AudioFormat_FourCCToEncoding( fmt->i_format, at_format )
+                != VLC_SUCCESS )
+            return VLC_EGENERIC;
+        fmt->i_bytes_per_frame = 4;
+        fmt->i_frame_length = 1;
+        fmt->i_physical_channels = AOUT_CHANS_STEREO;
+        fmt->i_channels = 2;
+        fmt->i_format = VLC_CODEC_SPDIFB;
+    }
+
+    return VLC_SUCCESS;
+}
+
+static int
+StartPassthrough( JNIEnv *env, aout_stream_t *stream )
+{
+    aout_sys_t *p_sys = stream->sys;
+
+    /* Try ENCODING_IEC61937 first, then fallback to ENCODING_[AC3|DTS|...] */
+    unsigned nb_fmt = jfields.AudioFormat.has_ENCODING_IEC61937 ? 2 : 1;
+    int i_ret;
+    for( unsigned i = 0; i < nb_fmt; ++i )
+    {
+        int i_at_format;
+        bool compat = i == 1;
+        audio_sample_format_t fmt = p_sys->fmt;
+
+        i_ret = GetPassthroughFmt( compat, &fmt, &i_at_format );
+        if( i_ret != VLC_SUCCESS )
+            return i_ret;
+
+        p_sys->b_passthrough = true;
+        i_ret = AudioTrack_Create( env, stream, fmt.i_rate, i_at_format,
+                                   fmt.i_physical_channels );
+
+        if( i_ret == VLC_SUCCESS )
+        {
+            msg_Dbg( stream, "Using passthrough format: %d", i_at_format );
+            p_sys->i_chans_to_reorder = 0;
+            p_sys->fmt = fmt;
+            return VLC_SUCCESS;
+        }
+    }
+
+    p_sys->b_passthrough = false;
+    msg_Warn( stream, "SPDIF configuration failed" );
+    return VLC_EGENERIC;
+}
+
+static int
+StartPCM( JNIEnv *env, aout_stream_t *stream, unsigned i_max_channels )
+{
+    aout_sys_t *p_sys = stream->sys;
+    unsigned i_nb_channels;
+    int i_at_format, i_ret;
+
+    if (jfields.AudioTrack.getNativeOutputSampleRate)
+        p_sys->fmt.i_rate =
+            JNI_AT_CALL_STATIC_INT( getNativeOutputSampleRate,
+                                    jfields.AudioManager.STREAM_MUSIC );
+    else
+        p_sys->fmt.i_rate = VLC_CLIP( p_sys->fmt.i_rate, 4000, 48000 );
+
+    do
+    {
+        /* We can only accept U8, S16N, FL32, and AC3 */
+        switch( p_sys->fmt.i_format )
+        {
+        case VLC_CODEC_U8:
+            i_at_format = jfields.AudioFormat.ENCODING_PCM_8BIT;
+            break;
+        case VLC_CODEC_S16N:
+            i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
+            break;
+        case VLC_CODEC_FL32:
+            if( jfields.AudioFormat.has_ENCODING_PCM_FLOAT )
+                i_at_format = jfields.AudioFormat.ENCODING_PCM_FLOAT;
+            else
+            {
+                p_sys->fmt.i_format = VLC_CODEC_S16N;
+                i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
+            }
+            break;
+        default:
+            p_sys->fmt.i_format = VLC_CODEC_S16N;
+            i_at_format = jfields.AudioFormat.ENCODING_PCM_16BIT;
+            break;
+        }
+
+        /* Android AudioTrack supports only mono, stereo, 5.1 and 7.1.
+         * Android will downmix to stereo if audio output doesn't handle 5.1 or 7.1
+         */
+
+        i_nb_channels = aout_FormatNbChannels( &p_sys->fmt );
+        if( i_nb_channels == 0 )
+            return VLC_EGENERIC;
+        if( AOUT_FMT_LINEAR( &p_sys->fmt ) )
+            i_nb_channels = __MIN( i_max_channels, i_nb_channels );
+        if( i_nb_channels > 5 )
+        {
+            if( i_nb_channels > 7 && jfields.AudioFormat.has_CHANNEL_OUT_SIDE )
+                p_sys->fmt.i_physical_channels = AOUT_CHANS_7_1;
+            else
+                p_sys->fmt.i_physical_channels = AOUT_CHANS_5_1;
+        } else
+        {
+            if( i_nb_channels == 1 )
+                p_sys->fmt.i_physical_channels = AOUT_CHAN_LEFT;
+            else
+                p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
+        }
+
+        /* Try to create an AudioTrack with the most advanced channel and
+         * format configuration. If AudioTrack_Create fails, try again with a
+         * less advanced format (PCM S16N). If it fails again, try again with
+         * Stereo channels. */
+        i_ret = AudioTrack_Create( env, stream, p_sys->fmt.i_rate, i_at_format,
+                                   p_sys->fmt.i_physical_channels );
+        if( i_ret != 0 )
+        {
+            if( p_sys->fmt.i_format == VLC_CODEC_FL32 )
+            {
+                msg_Warn( stream, "FL32 configuration failed, "
+                                  "fallback to S16N PCM" );
+                p_sys->fmt.i_format = VLC_CODEC_S16N;
+            }
+            else if( p_sys->fmt.i_physical_channels & AOUT_CHANS_5_1 )
+            {
+                msg_Warn( stream, "5.1 or 7.1 configuration failed, "
+                                  "fallback to Stereo" );
+                p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
+            }
+            else
+                break;
+        }
+    } while( i_ret != 0 );
+
+    if( i_ret != VLC_SUCCESS )
+        return i_ret;
+
+    uint32_t p_chans_out[AOUT_CHAN_MAX];
+    memset( p_chans_out, 0, sizeof(p_chans_out) );
+    AudioTrack_GetChanOrder( p_sys->fmt.i_physical_channels, p_chans_out );
+    p_sys->i_chans_to_reorder =
+        aout_CheckChannelReorder( NULL, p_chans_out,
+                                  p_sys->fmt.i_physical_channels,
+                                  p_sys->p_chan_table );
+    aout_FormatPrepare( &p_sys->fmt );
+    return VLC_SUCCESS;
+}
+
+static void
+Stop( aout_stream_t *stream )
+{
+    aout_sys_t *p_sys = stream->sys;
+    JNIEnv *env;
+
+    if( !( env = GET_ENV() ) )
+        return;
+
+    /* Stop the AudioTrack thread */
+    vlc_mutex_lock( &p_sys->lock );
+    if( p_sys->b_thread_running )
+    {
+        p_sys->b_thread_running = false;
+        vlc_cond_signal( &p_sys->thread_cond );
+        vlc_mutex_unlock( &p_sys->lock );
+        vlc_join( p_sys->thread, NULL );
+    }
+    else
+        vlc_mutex_unlock(  &p_sys->lock );
+
+    /* Release the AudioTrack object */
+    if( p_sys->p_audiotrack )
+    {
+        if( !p_sys->b_audiotrack_exception )
+        {
+            JNI_AT_CALL_VOID( stop );
+            if( !CHECK_AT_EXCEPTION( "stop" ) )
+                JNI_AT_CALL_VOID( release );
+        }
+        (*env)->DeleteGlobalRef( env, p_sys->p_audiotrack );
+    }
+
+    if( p_sys->p_dp != NULL )
+        DynamicsProcessing_Delete( stream, p_sys->p_dp );
+
+    /* Release the timestamp object */
+    if( p_sys->timestamp.p_obj )
+        (*env)->DeleteGlobalRef( env, p_sys->timestamp.p_obj );
+
+    free( p_sys );
+}
+
+static int
+Start( aout_stream_t *stream, audio_sample_format_t *restrict p_fmt,
+       enum android_audio_device_type adev )
+{
+    JNIEnv *env;
+    int i_ret;
+    bool b_try_passthrough;
+    unsigned i_max_channels;
+
+    if( adev == ANDROID_AUDIO_DEVICE_ENCODED )
+    {
+        b_try_passthrough = true;
+        i_max_channels = ANDROID_AUDIO_DEVICE_MAX_CHANNELS;
+    }
+    else
+    {
+        b_try_passthrough = false;
+        i_max_channels = adev == ANDROID_AUDIO_DEVICE_STEREO ? 2 : ANDROID_AUDIO_DEVICE_MAX_CHANNELS;
+    }
+
+    if( !( env = GET_ENV() ) )
+        return VLC_EGENERIC;
+
+    AudioTrack_InitJNI(VLC_OBJECT(stream));
+
+    aout_sys_t *p_sys = stream->sys = calloc( 1, sizeof (aout_sys_t) );
+
+    if( unlikely( p_sys == NULL ) )
+        return VLC_ENOMEM;
+
+    vlc_mutex_init(&p_sys->lock);
+    vlc_cond_init(&p_sys->thread_cond);
+
+    p_sys->volume = 1.0f;
+    p_sys->mute = false;
+
+    p_sys->fmt = *p_fmt;
+
+    aout_FormatPrint( stream, "VLC is looking for:", &p_sys->fmt );
+
+    if (p_sys->fmt.channel_type == AUDIO_CHANNEL_TYPE_AMBISONICS)
+    {
+        p_sys->fmt.channel_type = AUDIO_CHANNEL_TYPE_BITMAP;
+
+        /* TODO: detect sink channel layout */
+        p_sys->fmt.i_physical_channels = AOUT_CHANS_STEREO;
+        aout_FormatPrepare(&p_sys->fmt);
+    }
+
+    if( AOUT_FMT_LINEAR( &p_sys->fmt ) )
+        i_ret = StartPCM( env, stream, i_max_channels );
+    else if( b_try_passthrough )
+        i_ret = StartPassthrough( env, stream );
+    else
+        i_ret = VLC_EGENERIC;
+
+    if( i_ret != 0 )
+    {
+        free( p_sys );
+        return VLC_EGENERIC;
+    }
+
+    if( jfields.AudioTrack.getBufferSizeInFrames )
+        p_sys->i_max_audiotrack_samples = JNI_AT_CALL_INT( getBufferSizeInFrames );
+    else
+        p_sys->i_max_audiotrack_samples = BYTES_TO_FRAMES( p_sys->audiotrack_args.i_size );
+
+    if( jfields.AudioTimestamp.clazz )
+    {
+        /* create AudioTimestamp object */
+        jobject p_obj = JNI_CALL( NewObject, jfields.AudioTimestamp.clazz,
+                                 jfields.AudioTimestamp.ctor );
+        if( p_obj )
+        {
+            p_sys->timestamp.p_obj = (*env)->NewGlobalRef( env, p_obj );
+            (*env)->DeleteLocalRef( env, p_obj );
+        }
+        if( !p_sys->timestamp.p_obj )
+            goto error;
+    }
+
+    p_sys->jbuffer.array = NULL;
+    p_sys->jbuffer.size = p_sys->jbuffer.offset = 0;
+    p_sys->jbuffer.maxsize = 0;
+    p_sys->frame_chain = NULL;
+    p_sys->frame_last = &p_sys->frame_chain;
+    AudioTrack_Reset( env, stream );
+
+    if( p_sys->fmt.i_format == VLC_CODEC_FL32 )
+    {
+        msg_Dbg( stream, "using WRITE_FLOATARRAY");
+        p_sys->i_write_type = WRITE_FLOATARRAY;
+    }
+    else if( p_sys->fmt.i_format == VLC_CODEC_SPDIFL )
+    {
+        assert( jfields.AudioFormat.has_ENCODING_IEC61937 );
+        msg_Dbg( stream, "using WRITE_SHORTARRAYV23");
+        p_sys->i_write_type = WRITE_SHORTARRAYV23;
+    }
+    else if( jfields.AudioTrack.writeV23 )
+    {
+        msg_Dbg( stream, "using WRITE_BYTEARRAYV23");
+        p_sys->i_write_type = WRITE_BYTEARRAYV23;
+    }
+    else if( jfields.AudioTrack.writeBufferV21 )
+    {
+        msg_Dbg( stream, "using WRITE_BYTEBUFFER");
+        p_sys->i_write_type = WRITE_BYTEBUFFER;
+    }
+    else
+    {
+        msg_Dbg( stream, "using WRITE_BYTEARRAY");
+        p_sys->i_write_type = WRITE_BYTEARRAY;
+    }
+
+    /* Run AudioTrack_Thread */
+    p_sys->b_thread_running = true;
+    p_sys->b_thread_paused = false;
+    if ( vlc_clone( &p_sys->thread, AudioTrack_Thread, stream ) )
+    {
+        msg_Err(stream, "vlc clone failed");
+        goto error;
+    }
+
+    JNI_AT_CALL_VOID( play );
+    CHECK_AT_EXCEPTION( "play" );
+
+    *p_fmt = p_sys->fmt;
+
+    aout_FormatPrint( stream, "VLC will output:", &p_sys->fmt );
+
+    stream->stop = Stop;
+    stream->play = Play;
+    stream->pause = Pause;
+    stream->flush = Flush;
+    stream->time_get = NULL;
+    stream->volume_set = VolumeSet;
+    stream->mute_set = MuteSet;
+
+    msg_Dbg(stream, "using AudioTrack API");
+    return VLC_SUCCESS;
+
+error:
+    Stop( stream );
+    return VLC_EGENERIC;
 }
 
 vlc_module_begin ()

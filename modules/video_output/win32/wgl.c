@@ -35,7 +35,8 @@
 /*****************************************************************************
  * Module descriptor
  *****************************************************************************/
-static int Open(vlc_gl_t *, unsigned width, unsigned height);
+static int Open(vlc_gl_t *, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg);
 static void Close(vlc_gl_t *);
 
 #define HW_GPU_AFFINITY_TEXT N_("GPU affinity")
@@ -47,8 +48,7 @@ vlc_module_begin()
 
     add_integer("gpu-affinity", -1, HW_GPU_AFFINITY_TEXT, NULL)
 
-    set_capability("opengl", 50)
-    set_callback(Open)
+    set_callback_opengl(Open, 50)
     add_shortcut("wgl")
 vlc_module_end()
 
@@ -149,9 +149,16 @@ static void DestroyGPUAffinityDC(vlc_gl_t *gl) {
     fncDeleteDCNV(sys->affinityHDC);
 }
 
-static int Open(vlc_gl_t *gl, unsigned width, unsigned height)
+static int Open(vlc_gl_t *gl, unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
     vout_display_sys_t *sys;
+
+    if (gl_cfg->need_alpha)
+    {
+        msg_Err(gl, "Cannot support alpha yet");
+        return VLC_ENOTSUP;
+    }
 
     /* Allocate structure */
     gl->sys = sys = calloc(1, sizeof(*sys));

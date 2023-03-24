@@ -37,8 +37,6 @@ T.TabButton {
     property bool showText: true
     property bool showCurrentIndicator: true
 
-    property color color: VLCStyle.colors.topBanner
-
     // Settings
 
     width: control.showText ? VLCStyle.bannerTabButton_width_large
@@ -59,54 +57,51 @@ T.TabButton {
 
     Keys.onPressed: Navigation.defaultKeyAction(event)
 
-    // Private functions
-
-    function _getBackground() {
-        if (activeFocus || hovered)
-            return VLCStyle.colors.buttonHover;
-        else
-            return color;
-    }
-
-    function _getForeground() {
-        if (activeFocus || hovered || selected)
-            return VLCStyle.colors.buttonTextHover;
-        else
-            return VLCStyle.colors.buttonBanner;
-    }
-
     // Childs
+
+    ColorContext {
+        id: theme
+        colorSet: ColorContext.TabButton
+
+        focused: control.activeFocus
+        hovered: control.hovered
+        pressed: control.down
+        enabled: control.enabled
+    }
 
     background: Widgets.AnimatedBackground {
         height: control.height
         width: control.width
 
         active: visualFocus
+        animate: theme.initialized
 
         animationDuration: VLCStyle.duration_short
 
-        backgroundColor: _getBackground()
-        foregroundColor: _getForeground()
+        backgroundColor: theme.bg.primary
+        foregroundColor: control.selected ? theme.fg.secondary : theme.fg.primary
+        activeBorderColor: theme.visualFocus
     }
 
     contentItem: Item {
-        implicitWidth: tabRow.implicitWidth
+        implicitWidth: tabRow.implicitWidth + VLCStyle.margin_xxsmall * 2
         implicitHeight: tabRow.implicitHeight
 
         RowLayout {
             id: tabRow
 
             anchors.centerIn: parent
+            anchors.leftMargin: VLCStyle.margin_xxsmall
+            anchors.rightMargin: VLCStyle.margin_xxsmall
 
             spacing: VLCStyle.margin_xsmall
 
             Widgets.IconLabel {
                 text: control.iconTxt
 
-                color: (control.activeFocus ||
-                        control.hovered     ||
-                        control.selected) ? VLCStyle.colors.accent
-                                          : VLCStyle.colors.text
+                color: (control.selected || control.activeFocus || control.hovered)
+                        ? theme.accent
+                        : theme.fg.primary
 
                 font.pixelSize: VLCStyle.icon_banner
             }
@@ -132,7 +127,7 @@ T.TabButton {
 
             orientation: Qt.Horizontal
 
-            margin: VLCStyle.dp(3, VLCStyle.scale)
+            margin: VLCStyle.margin_xxsmall
 
             visible: (control.showCurrentIndicator && control.selected)
         }

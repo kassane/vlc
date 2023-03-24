@@ -24,6 +24,10 @@
 #ifdef HAVE_CONFIG_H
 # include "config.h"
 #endif
+#undef VLC_DYNAMIC_PLUGINS
+
+#define MODULE_NAME ios_interface
+#undef VLC_DYNAMIC_PLUGINS
 
 #import <UIKit/UIKit.h>
 #include <vlc/vlc.h>
@@ -153,15 +157,12 @@ static int Open(vlc_object_t *obj)
     return VLC_SUCCESS;
 }
 
-#define MODULE_NAME ios_interface
-#define MODULE_STRING "ios_interface"
 vlc_module_begin()
     set_capability("interface", 0)
     set_callback(Open)
 vlc_module_end()
 
-/* Inject the glue interface as a static module */
-typedef int (*vlc_plugin_cb)(vlc_set_cb, void*);
-
-__attribute__((visibility("default")))
-vlc_plugin_cb vlc_static_modules[] = { vlc_entry__ios_interface, NULL };
+VLC_EXPORT const vlc_plugin_cb vlc_static_modules[] = {
+    VLC_SYMBOL(vlc_entry),
+    NULL
+};

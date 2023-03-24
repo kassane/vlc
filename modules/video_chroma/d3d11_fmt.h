@@ -74,6 +74,7 @@ typedef struct
     ID3D11VideoProcessorOutputView *processorOutput; /* when used as processor output */
     ID3D11ShaderResourceView      *renderSrc[DXGI_MAX_SHADER_VIEW];
     HANDLE                        sharedHandle;
+    bool                          ownHandle;
 } picture_sys_d3d11_t;
 
 struct d3d11_pic_context
@@ -206,6 +207,8 @@ picture_context_t *d3d11_pic_context_copy(picture_context_t *);
 picture_t *D3D11_AllocPicture(vlc_object_t *,
                               const video_format_t *, vlc_video_context *,
                               bool, const d3d_format_t *);
+
+void D3D11_PictureAttach(picture_t *, ID3D11Texture2D *textures, const d3d_format_t *cfg);
 
 #ifdef __cplusplus
 }

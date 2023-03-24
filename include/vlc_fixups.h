@@ -28,13 +28,30 @@
 
 #if defined(_MSC_VER)
 // disable common warnings when compiling POSIX code
-#define _CRT_NONSTDC_NO_WARNINGS    1
+#ifndef _CRT_NONSTDC_NO_DEPRECATE
+// the POSIX variants are not available in the GDK
+# if !(defined(_GAMING_XBOX_SCARLETT) || defined(_GAMING_XBOX_XBOXONE) || defined(_XBOX_ONE))
+#  define _CRT_NONSTDC_NO_DEPRECATE
+# endif
+#endif
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS     1
+#endif
+#if defined(_GAMING_XBOX_SCARLETT) || defined(_GAMING_XBOX_XBOXONE) || defined(_XBOX_ONE)
+// make sure we don't use MS POSIX aliases that won't link
+# undef _CRT_DECLARE_NONSTDC_NAMES
+# define _CRT_DECLARE_NONSTDC_NAMES 0
+#endif
+
 
 // sys/stat.h values
 #define S_IWUSR     _S_IWRITE
 #define S_IRUSR     _S_IREAD
 #define S_IFIFO     _S_IFIFO
+#define S_IFMT      _S_IFMT
+#define S_IFCHR     _S_IFCHR
+#define S_IFREG     _S_IFREG
+#define S_IFDIR     _S_IFDIR
 #define S_ISDIR(m)  (((m) & _S_IFMT) == _S_IFDIR)
 #define S_ISREG(m)  (((m) & _S_IFMT) == _S_IFREG)
 #define S_ISBLK(m)  (0)
@@ -49,6 +66,26 @@ typedef unsigned short mode_t;
 // since we define restrist as __restrict for C++, __declspec(restrict) is bogus
 #define _CRT_SUPPRESS_RESTRICT
 #define DECLSPEC_RESTRICT
+
+// turn CPU MSVC-ism into more standard defines
+#if defined(_M_X64) && !defined(__x86_64__)
+# define __x86_64__
+#endif
+#if defined(_M_IX86) && !defined(__i386__)
+# define __i386__
+#endif
+#if defined(_M_ARM64) && !defined(__aarch64__)
+# define __aarch64__
+#endif
+#if defined(_M_ARM) && !defined(__arm__)
+# define __arm__
+#endif
+#if defined(_M_IX86_FP) && _M_IX86_FP == 1 && !defined(__SSE__)
+# define __SSE__
+#endif
+#if defined(_M_IX86_FP) && _M_IX86_FP == 2 && !defined(__SSE2__)
+# define __SSE2__
+#endif
 
 #endif // _MSC_VER
 
@@ -147,6 +184,11 @@ typedef struct
     !defined (HAVE_WRITEV) || \
     !defined (HAVE_READV)
 # include <sys/types.h> /* ssize_t, pid_t */
+
+# if defined(_CRT_INTERNAL_NONSTDC_NAMES) && !_CRT_INTERNAL_NONSTDC_NAMES
+// MS POSIX aliases missing
+typedef _off_t off_t;
+# endif
 #endif
 
 #if !defined (HAVE_DIRFD) || \
@@ -621,6 +663,12 @@ struct addrinfo
     struct addrinfo *ai_next;
 };
 
+# ifdef __LIBCN__
+/* OS/2 LIBCn has inet_pton(). Because of this, socklen_t is not defined above.
+ * And OS/2 LIBCn has socklen_t. So include sys/socket.h here for socklen_t. */
+#  include <sys/socket.h>
+# endif
+
 const char *gai_strerror (int);
 
 int  getaddrinfo  (const char *node, const char *service,
@@ -655,6 +703,9 @@ struct sockaddr_in6
 static const struct in6_addr in6addr_any =
     { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 
+#define IN6ADDR_ANY_INIT \
+    { { { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } } }
+
 # include <errno.h>
 # ifndef EPROTO
 #  define EPROTO (ELAST + 1)
@@ -663,7 +714,16 @@ static const struct in6_addr in6addr_any =
 # ifndef HAVE_IF_NAMETOINDEX
 #  define if_nametoindex(name)  atoi(name)
 # endif
-#endif
+
+/* static_assert missing in assert.h */
+# if defined(__STDC_VERSION__) && \
+     __STDC_VERSION__ >= 201112L && __STDC_VERSION__ < 202311L
+#  include <assert.h>
+#  ifndef static_assert
+#   define static_assert _Static_assert
+#  endif
+# endif
+#endif  /* __OS2__ */
 
 /* math.h */
 
@@ -713,6 +773,30 @@ int clock_nanosleep(clockid_t clock_id, int flags,
         const struct timespec *rqtp, struct timespec *rmtp);
 # endif
 #endif
+
+#ifdef _WIN32
+# if defined(_CRT_INTERNAL_NONSTDC_NAMES) && !_CRT_INTERNAL_NONSTDC_NAMES
+#  include <string.h>
+// the MS POSIX aliases are missing
+static inline char *strdup(const char *str)
+{
+    return _strdup(str);
+}
+
+#  define O_WRONLY    _O_WRONLY
+#  define O_CREAT     _O_CREAT
+#  define O_APPEND    _O_APPEND
+#  define O_TRUNC     _O_TRUNC
+#  define O_BINARY    _O_BINARY
+#  define O_EXCL      _O_EXCL
+#  define O_RDWR      _O_RDWR
+#  define O_TEXT      _O_TEXT
+#  define O_NOINHERIT _O_NOINHERIT
+#  define O_RDONLY    _O_RDONLY
+
+# endif // !_CRT_INTERNAL_NONSTDC_NAMES
+#endif // _WIN32
+
 
 #ifdef __cplusplus
 } /* extern "C" */

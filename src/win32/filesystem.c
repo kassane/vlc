@@ -37,16 +37,12 @@
 #include <fcntl.h>
 #include <winsock2.h>
 #include <direct.h>
+#include <unistd.h>
 
 #include <vlc_common.h>
 #include <vlc_charset.h>
 #include <vlc_fs.h>
 #include "libvlc.h" /* vlc_mkdir */
-
-#ifdef _MSC_VER
-# define __STDC__ 1
-# include <io.h> /* _pipe */
-#endif
 
 #ifndef NTDDI_WIN10_RS3
 #define NTDDI_WIN10_RS3  0x0A000004
@@ -415,11 +411,19 @@ int vlc_dup2(int oldfd, int newfd)
 
 int vlc_pipe (int fds[2])
 {
-#ifdef VLC_WINSTORE_APP
+#if (defined(__MINGW64_VERSION_MAJOR) && __MINGW64_VERSION_MAJOR < 8)
+    // old mingw doesn't know about _CRT_USE_WINAPI_FAMILY_DESKTOP_APP
+# if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+    return _pipe (fds, 32768, O_NOINHERIT | O_BINARY);
+# else
     _set_errno(EPERM);
     return -1;
-#else
+# endif
+#elif defined(_CRT_USE_WINAPI_FAMILY_DESKTOP_APP)
     return _pipe (fds, 32768, O_NOINHERIT | O_BINARY);
+#else
+    _set_errno(EPERM);
+    return -1;
 #endif
 }
 

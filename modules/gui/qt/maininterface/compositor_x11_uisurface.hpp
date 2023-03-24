@@ -19,6 +19,7 @@
 #define COMPOSITOR_X11_UISURFACE_HPP
 
 #include <QWindow>
+#include <QQuickWindow>
 #include <QQuickRenderControl>
 #include "compositor.hpp"
 
@@ -26,8 +27,11 @@ class QQuickWindow;
 class QQmlEngine;
 class QQmlComponent;
 class QQuickItem;
+class QQuickRenderControl;
 
 namespace vlc {
+
+class CompositorOffscreenWindow;
 
 class CompositorX11RenderControl : public QQuickRenderControl {
     Q_OBJECT
@@ -36,6 +40,7 @@ public:
         : QQuickRenderControl(parent)
         , m_window(window)
     {}
+
 
     QWindow *renderWindow(QPoint * offset) override;
 
@@ -60,6 +65,8 @@ public:
 
     QQuickItem * activeFocusItem() const override;
 
+    QQuickWindow* getOffscreenWindow() const;
+
 signals:
     void beforeRendering();
     void afterRendering();
@@ -67,12 +74,14 @@ signals:
     void updated();
 
 protected:
+    bool eventFilter(QObject* object, QEvent *event) override;
+
     bool event(QEvent *event) override;
 
     void resizeEvent(QResizeEvent *) override;
     void exposeEvent(QExposeEvent *) override;
     void handleScreenChange();
-
+    void forwardFocusObjectChanged(QObject* focusObject);
 
     void updateSizes();
 
@@ -83,8 +92,9 @@ protected:
 private:
     QQuickItem* m_rootItem = nullptr;
     QOpenGLContext *m_context = nullptr;
-    QQuickWindow* m_uiWindow = nullptr;
+    CompositorOffscreenWindow* m_uiWindow = nullptr;
     QQmlEngine* m_qmlEngine = nullptr;
+    QWindow* m_renderWindow = nullptr;
     CompositorX11RenderControl* m_uiRenderControl = nullptr;
 
     QSize m_onscreenSize;

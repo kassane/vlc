@@ -309,7 +309,7 @@ httpd_FileCallBack(httpd_callback_sys_t *p_sys, httpd_client_t *cl,
                     httpd_message_t *answer, const httpd_message_t *query)
 {
     httpd_file_t *file = (httpd_file_t*)p_sys;
-    uint8_t **pp_body, *p_body;
+    uint8_t **pp_body, *p_body = NULL;
     int *pi_body, i_body;
 
     if (!answer || !query )
@@ -329,7 +329,6 @@ httpd_FileCallBack(httpd_callback_sys_t *p_sys, httpd_client_t *cl,
         pi_body = &answer->i_body;
     } else {
         /* The file still needs to be executed. */
-        p_body = NULL;
         i_body = 0;
         pp_body = &p_body;
         pi_body = &i_body;
@@ -1154,7 +1153,7 @@ static void httpd_MsgInit(httpd_message_t *msg)
     msg->cl         = NULL;
     msg->i_type     = HTTPD_MSG_NONE;
     msg->i_proto    = HTTPD_PROTO_NONE;
-    msg->i_version  = -1; /* FIXME */
+    msg->i_version  = 0;
 
     msg->i_status   = 0;
 

@@ -21,15 +21,22 @@
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QOffscreenSurface>
+#include <QGuiApplication>
 
 #include "compositor_x11_uisurface.hpp"
+#include "compositor_common.hpp"
 
 using namespace vlc;
 
+
+
 CompositorX11UISurface::CompositorX11UISurface(QWindow* window, QScreen* screen)
     : QWindow(screen)
+    , m_renderWindow(window)
 {
     setSurfaceType(QWindow::OpenGLSurface);
+
+    m_renderWindow->installEventFilter(this);
 
     QSurfaceFormat format;
     // Qt Quick may need a depth and stencil buffer. Always make sure these are available.
@@ -50,7 +57,7 @@ CompositorX11UISurface::CompositorX11UISurface(QWindow* window, QScreen* screen)
 
     m_uiRenderControl = new CompositorX11RenderControl(window);
 
-    m_uiWindow = new QQuickWindow(m_uiRenderControl);
+    m_uiWindow = new CompositorOffscreenWindow(m_uiRenderControl);
     m_uiWindow->setDefaultAlphaBuffer(true);
     m_uiWindow->setFormat(format);
     m_uiWindow->setColor(Qt::transparent);
@@ -65,12 +72,16 @@ CompositorX11UISurface::CompositorX11UISurface(QWindow* window, QScreen* screen)
     connect(m_uiWindow, &QQuickWindow::beforeRendering, this, &CompositorX11UISurface::beforeRendering);
     connect(m_uiWindow, &QQuickWindow::afterRendering, this, &CompositorX11UISurface::afterRendering);
 
+    connect(m_uiWindow, &QQuickWindow::focusObjectChanged, this, &CompositorX11UISurface::forwardFocusObjectChanged);
+
     connect(m_uiRenderControl, &QQuickRenderControl::renderRequested, this, &CompositorX11UISurface::requestUpdate);
     connect(m_uiRenderControl, &QQuickRenderControl::sceneChanged, this, &CompositorX11UISurface::requestUpdate);
 }
 
 CompositorX11UISurface::~CompositorX11UISurface()
 {
+    m_renderWindow->removeEventFilter(this);
+
     auto surface = new QOffscreenSurface();
     surface->setFormat(m_context->format());
     surface->create();
@@ -107,6 +118,11 @@ void CompositorX11UISurface::setContent(QQmlComponent*,  QQuickItem* rootItem)
 QQuickItem * CompositorX11UISurface::activeFocusItem() const /* override */
 {
     return m_uiWindow->activeFocusItem();
+}
+
+QQuickWindow* CompositorX11UISurface::getOffscreenWindow() const
+{
+    return m_uiWindow;
 }
 
 void CompositorX11UISurface::createFbo()
@@ -191,7 +207,7 @@ static void remapInputMethodQueryEvent(QObject *object, QInputMethodQueryEvent *
     }
 }
 
-bool CompositorX11UISurface::handleWindowEvent(QEvent *event)
+bool CompositorX11UISurface::eventFilter(QObject*, QEvent *event)
 {
     switch (event->type())
     {
@@ -230,6 +246,17 @@ bool CompositorX11UISurface::handleWindowEvent(QEvent *event)
         return ret;
     }
 
+    case QEvent::FocusAboutToChange:
+    case QEvent::FocusIn:
+    case QEvent::FocusOut:
+        return QCoreApplication::sendEvent(m_uiWindow, event);
+
+    case QEvent::Show:
+        m_uiWindow->setPseudoVisible(true);
+        break;
+    case QEvent::Hide:
+        m_uiWindow->setPseudoVisible(false);
+        break;
     case QEvent::InputMethod:
         return QCoreApplication::sendEvent(m_uiWindow->focusObject(), event);
 
@@ -319,6 +346,11 @@ void CompositorX11UISurface::handleScreenChange()
 {
     m_uiWindow->setGeometry(0, 0, width(), height());
     requestUpdate();
+}
+
+void CompositorX11UISurface::forwardFocusObjectChanged(QObject* object)
+{
+    m_renderWindow->focusObjectChanged(object);
 }
 
 QWindow* CompositorX11RenderControl::renderWindow(QPoint* offset)

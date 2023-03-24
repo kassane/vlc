@@ -151,6 +151,7 @@
         <file alias="NoMedialibHome.qml">maininterface/qml/NoMedialibHome.qml</file>
         <file alias="MainTableView.qml">maininterface/qml/MainTableView.qml</file>
         <file alias="MainGridView.qml">maininterface/qml/MainGridView.qml</file>
+        <file alias="MainViewLoader.qml">maininterface/qml/MainViewLoader.qml</file>
     </qresource>
     <qresource prefix="/widgets">
         <file alias="ActionButtonOverlay.qml">widgets/qml/ActionButtonOverlay.qml</file>
@@ -168,13 +169,12 @@
         <file alias="CurrentIndicator.qml">widgets/qml/CurrentIndicator.qml</file>
         <file alias="GridItem.qml">widgets/qml/GridItem.qml</file>
         <file alias="ListItem.qml">widgets/qml/ListItem.qml</file>
+        <file alias="LoaderFade.qml">widgets/qml/LoaderFade.qml</file>
         <file alias="DrawerExt.qml">widgets/qml/DrawerExt.qml</file>
         <file alias="KeyNavigableListView.qml">widgets/qml/KeyNavigableListView.qml</file>
-        <file alias="ToolTipArea.qml">widgets/qml/ToolTipArea.qml</file>
         <file alias="KeyNavigableTableView.qml">widgets/qml/KeyNavigableTableView.qml</file>
         <file alias="TableViewDelegate.qml">widgets/qml/TableViewDelegate.qml</file>
         <file alias="TableColumns.qml">widgets/qml/TableColumns.qml</file>
-        <file alias="TransparentSpinBox.qml">widgets/qml/TransparentSpinBox.qml</file>
         <file alias="ImageToolButton.qml">widgets/qml/ImageToolButton.qml</file>
         <file alias="TextToolButton.qml">widgets/qml/TextToolButton.qml</file>
         <file alias="IconToolButton.qml">widgets/qml/IconToolButton.qml</file>
@@ -182,14 +182,11 @@
         <file alias="StackViewExt.qml">widgets/qml/StackViewExt.qml</file>
         <file alias="ComboBoxExt.qml">widgets/qml/ComboBoxExt.qml</file>
         <file alias="SpinBoxExt.qml">widgets/qml/SpinBoxExt.qml</file>
-        <file alias="MenuExt.qml">widgets/qml/MenuExt.qml</file>
-        <file alias="MenuItemExt.qml">widgets/qml/MenuItemExt.qml</file>
         <file alias="ExpandGridView.qml">widgets/qml/ExpandGridView.qml</file>
         <file alias="ScanProgressBar.qml">widgets/qml/ScanProgressBar.qml</file>
         <file alias="SearchBox.qml">widgets/qml/SearchBox.qml</file>
         <file alias="SortControl.qml">widgets/qml/SortControl.qml</file>
         <file alias="RoundButton.qml">widgets/qml/RoundButton.qml</file>
-        <file alias="LabelSeparator.qml">widgets/qml/LabelSeparator.qml</file>
         <file alias="VideoQualityLabels.qml">widgets/qml/VideoQualityLabels.qml</file>
         <file alias="VideoProgressBar.qml">widgets/qml/VideoProgressBar.qml</file>
         <file alias="NavigableCol.qml">widgets/qml/NavigableCol.qml</file>
@@ -225,6 +222,8 @@
         <file alias="FadingEdgeListView.qml">widgets/qml/FadingEdgeListView.qml</file>
         <file alias="CSDThemeButtonSet.qml">widgets/qml/CSDThemeButtonSet.qml</file>
         <file alias="CSDThemeButton.qml">widgets/qml/CSDThemeButton.qml</file>
+        <file alias="TextFieldExt.qml">widgets/qml/TextFieldExt.qml</file>
+        <file alias="Slider.qml">widgets/qml/Slider.qml</file>
     </qresource>
     <qresource prefix="/network">
         <file alias="AddressbarButton.qml">network/qml/AddressbarButton.qml</file>
@@ -237,7 +236,6 @@
         <file alias="DiscoverUrlDisplay.qml">network/qml/DiscoverUrlDisplay.qml</file>
         <file alias="NetworkCustomCover.qml">network/qml/NetworkCustomCover.qml</file>
         <file alias="NetworkGridItem.qml">network/qml/NetworkGridItem.qml</file>
-        <file alias="NetworkListItem.qml">network/qml/NetworkListItem.qml</file>
         <file alias="NetworkThumbnailItem.qml">network/qml/NetworkThumbnailItem.qml</file>
         <file alias="NetworkAddressbar.qml">network/qml/NetworkAddressbar.qml</file>
         <file alias="ServicesHomeDisplay.qml">network/qml/ServicesHomeDisplay.qml</file>
@@ -283,7 +281,6 @@
         <file alias="AcrylicController.qml">style/AcrylicController.qml</file>
         <file alias="qmldir">style/qmldir</file>
         <file alias="VLCStyle.qml">style/VLCStyle.qml</file>
-        <file alias="VLCColors.qml">style/VLCColors.qml</file>
         <file alias="VLCIcons.qml">style/VLCIcons.qml</file>
     </qresource>
     <qresource prefix="/playlist">
@@ -306,7 +303,6 @@
         <file alias="ResumeDialog.qml">player/qml/ResumeDialog.qml</file>
         <file alias="SliderBar.qml">player/qml/SliderBar.qml</file>
         <file alias="TracksMenu.qml">player/qml/TracksMenu.qml</file>
-        <file alias="TrackInfo.qml">player/qml/TrackInfo.qml</file>
         <file alias="TracksPage.qml">player/qml/TracksPage.qml</file>
         <file alias="TracksPageSpeed.qml">player/qml/TracksPageSpeed.qml</file>
         <file alias="TracksPageAudio.qml">player/qml/TracksPageAudio.qml</file>
@@ -316,8 +312,6 @@
         <file alias="TopBar.qml">player/qml/TopBar.qml</file>
         <file alias="PIPPlayer.qml">player/qml/PIPPlayer.qml</file>
         <file alias="PlayerControlLayout.qml">player/qml/PlayerControlLayout.qml</file>
-        <file alias="PlayerMenu.qml">player/qml/PlayerMenu.qml</file>
-        <file alias="PlayerMenuItem.qml">player/qml/PlayerMenuItem.qml</file>
         <file alias="ControlLayout.qml">player/qml/ControlLayout.qml</file>
         <file alias="PlaybackSpeed.qml">player/qml/PlaybackSpeed.qml</file>
         <file alias="PlayerPlaylistVisibilityFSM.qml">player/qml/PlayerPlaylistVisibilityFSM.qml</file>
@@ -335,7 +329,6 @@
         <file alias="ChapterNextButton.qml">player/qml/controlbarcontrols/ChapterNextButton.qml</file>
         <file alias="ChapterPreviousButton.qml">player/qml/controlbarcontrols/ChapterPreviousButton.qml</file>
         <file alias="ControlButtonPopup.qml">player/qml/controlbarcontrols/ControlButtonPopup.qml</file>
-        <file alias="ControlCheckButton.qml">player/qml/controlbarcontrols/ControlCheckButton.qml</file>
         <file alias="DvdMenuButton.qml">player/qml/controlbarcontrols/DvdMenuButton.qml</file>
         <file alias="ExpandingSpacerWidget.qml">player/qml/controlbarcontrols/ExpandingSpacerWidget.qml</file>
         <file alias="ExtendedSettingsButton.qml">player/qml/controlbarcontrols/ExtendedSettingsButton.qml</file>
@@ -371,9 +364,6 @@
         <file alias="TeletextWidget.qml">player/qml/controlbarcontrols/TeletextWidget.qml</file>
         <file alias="VolumeWidget.qml">player/qml/controlbarcontrols/VolumeWidget.qml</file>
         <file alias="Fallback.qml">player/qml/controlbarcontrols/Fallback.qml</file>
-    </qresource>
-    <qresource prefix="/about">
-        <file alias="About.qml">dialogs/help/qml/About.qml</file>
     </qresource>
     <qresource prefix="/dialogs">
         <file alias="CustomDialog.qml">dialogs/dialogs/qml/CustomDialog.qml</file>

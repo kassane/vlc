@@ -40,7 +40,6 @@
 #import "library/VLCLibrarySortingMenuController.h"
 #import "library/VLCLibraryNavigationStack.h"
 #import "library/VLCLibraryUIUnits.h"
-#import "library/VLCLibraryWindowAutohideToolbar.h"
 
 #import "library/video-library/VLCLibraryVideoCollectionViewsStackViewController.h"
 #import "library/video-library/VLCLibraryVideoTableViewDataSource.h"
@@ -52,14 +51,17 @@
 #import "media-source/VLCMediaSourceBaseDataSource.h"
 #import "media-source/VLCLibraryMediaSourceViewController.h"
 
+#import "views/VLCBottomBarView.h"
 #import "views/VLCCustomWindowButton.h"
 #import "views/VLCDragDropView.h"
 #import "views/VLCRoundedCornerTextField.h"
 
 #import "windows/mainwindow/VLCControlsBarCommon.h"
-#import "windows/video/VLCFSPanelController.h"
+
 #import "windows/video/VLCVoutView.h"
 #import "windows/video/VLCVideoOutputProvider.h"
+#import "windows/video/VLCMainVideoViewController.h"
+
 #import "windows/VLCOpenWindowController.h"
 #import "windows/VLCOpenInputMetadata.h"
 
@@ -78,8 +80,6 @@ const NSUserInterfaceItemIdentifier VLCLibraryWindowIdentifier = @"VLCLibraryWin
     
     NSInteger _currentSelectedSegment;
     NSInteger _currentSelectedViewModeSegment;
-
-    NSTimer *_hideToolbarTimer;
 }
 
 - (IBAction)goToBrowseSection:(id)sender;
@@ -128,7 +128,9 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
 - (void)awakeFromNib
 {
+    [super awakeFromNib];
     self.identifier = VLCLibraryWindowIdentifier;
+    self.minSize = NSMakeSize(VLCLibraryWindowMinimalWidth, VLCLibraryWindowMinimalHeight);
 
     if(@available(macOS 10.12, *)) {
         self.tabbingMode = NSWindowTabbingModeDisallowed;
@@ -146,8 +148,10 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     self.navigationStack = [[VLCLibraryNavigationStack alloc] init];
     self.navigationStack.delegate = self;
 
-    self.videoView = [[VLCVoutView alloc] initWithFrame:self.mainSplitView.frame];
-    self.videoView.hidden = YES;
+    self.videoViewController.view.frame = self.mainSplitView.frame;
+    self.videoViewController.view.hidden = YES;
+    self.videoViewController.displayLibraryControls = YES;
+    [self hideControlsBar];
 
     [self.gridVsListSegmentedControl setToolTip: _NS("Grid View or List View")];
     [self.librarySortButton setToolTip: _NS("Select Sorting Mode")];
@@ -158,10 +162,6 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self.librarySearchField setEnabled:YES];
 
     NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
-    [notificationCenter addObserver:self
-                           selector:@selector(shouldShowFullscreenController:)
-                               name:VLCVideoWindowShouldShowFullscreenController
-                             object:nil];
     [notificationCenter addObserver:self
                            selector:@selector(shouldShowController:)
                                name:VLCWindowShouldShowController
@@ -196,9 +196,6 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
         _mediaToolBar.centeredItemIdentifier = _segmentedTitleControlToolbarItem.itemIdentifier;
     }
 
-    _fspanel = [[VLCFSPanelController alloc] init];
-    [_fspanel showWindow:self];
-
     _currentSelectedSegment = -1; // To enforce action on the selected segment
     _segmentedTitleControl.segmentCount = 4;
     [_segmentedTitleControl setTarget:self];
@@ -228,16 +225,8 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [_playlistTableView reloadData];
 
     _libraryVideoViewController = [[VLCLibraryVideoViewController alloc] initWithLibraryWindow:self];
-    _videoLibraryGroupsTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
-    _videoLibraryGroupSelectionTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
-
     _libraryAudioViewController = [[VLCLibraryAudioViewController alloc] initWithLibraryWindow:self];
-    _audioCollectionSelectionTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
-    _audioLibraryGridModeSplitViewListTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
-    _audioGroupSelectionTableView.rowHeight = [VLCLibraryAlbumTableCellView defaultHeight];
-
     _libraryMediaSourceViewController = [[VLCLibraryMediaSourceViewController alloc] initWithLibraryWindow:self];
-    _mediaSourceTableView.rowHeight = [VLCLibraryUIUnits mediumTableViewRowHeight];
 
     self.upNextLabel.font = [NSFont VLClibrarySectionHeaderFont];
     self.upNextLabel.stringValue = _NS("Playlist");
@@ -253,94 +242,6 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self repeatStateUpdated:nil];
     [self shuffleStateUpdated:nil];
 
-    const CGFloat scrollViewTopInset = [VLCLibraryUIUnits mediumSpacing];
-    const CGFloat scrollViewRightInset = [VLCLibraryUIUnits mediumSpacing];
-    const CGFloat scrollViewBottomInset = [VLCLibraryUIUnits mediumSpacing];
-    const CGFloat scrollViewLeftInset = [VLCLibraryUIUnits mediumSpacing];
-
-    // Need to account for the audio collection switcher at the top
-    const CGFloat audioScrollViewTopInset = scrollViewTopInset + _optionBarView.frame.size.height;
-
-    const NSEdgeInsets defaultInsets = NSEdgeInsetsMake(scrollViewTopInset,
-                                                        scrollViewLeftInset,
-                                                        scrollViewBottomInset,
-                                                        scrollViewRightInset);
-    const NSEdgeInsets audioScrollViewInsets = NSEdgeInsetsMake(audioScrollViewTopInset,
-                                                                scrollViewLeftInset,
-                                                                scrollViewBottomInset,
-                                                                scrollViewRightInset);
-    // We might want to give the content some insets, but this will also affect the scrollbars.
-    // We need to compensate for this or they will look wrong.
-    const NSEdgeInsets scrollerInsets = NSEdgeInsetsMake(-scrollViewTopInset,
-                                                        -scrollViewLeftInset,
-                                                        -scrollViewBottomInset,
-                                                        -scrollViewRightInset);
-    
-    _audioCollectionViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _audioCollectionViewScrollView.contentInsets = audioScrollViewInsets;
-    _audioCollectionViewScrollView.scrollerInsets = scrollerInsets;
-
-    _audioCollectionSelectionTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _audioCollectionSelectionTableViewScrollView.contentInsets = audioScrollViewInsets;
-    _audioCollectionSelectionTableViewScrollView.scrollerInsets = scrollerInsets;
-    _audioGroupSelectionTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _audioGroupSelectionTableViewScrollView.contentInsets = audioScrollViewInsets;
-    _audioGroupSelectionTableViewScrollView.scrollerInsets = scrollerInsets;
-
-    _audioLibraryGridModeSplitViewListTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _audioLibraryGridModeSplitViewListTableViewScrollView.contentInsets = audioScrollViewInsets;
-    _audioLibraryGridModeSplitViewListTableViewScrollView.scrollerInsets = scrollerInsets;
-    _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.contentInsets = audioScrollViewInsets;
-    _audioLibraryGridModeSplitViewListSelectionCollectionViewScrollView.scrollerInsets = scrollerInsets;
-
-    _videoLibraryCollectionViewsStackViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _videoLibraryCollectionViewsStackViewScrollView.contentInsets = defaultInsets;
-    _videoLibraryCollectionViewsStackViewScrollView.scrollerInsets = scrollerInsets;
-    
-    _videoLibraryGroupsTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _videoLibraryGroupsTableViewScrollView.contentInsets = defaultInsets;
-    _videoLibraryGroupsTableViewScrollView.scrollerInsets = scrollerInsets;
-    _videoLibraryGroupSelectionTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _videoLibraryGroupSelectionTableViewScrollView.contentInsets = defaultInsets;
-    _videoLibraryGroupSelectionTableViewScrollView.scrollerInsets = scrollerInsets;
-
-    _mediaSourceCollectionViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _mediaSourceCollectionViewScrollView.contentInsets = defaultInsets;
-    _mediaSourceCollectionViewScrollView.scrollerInsets = scrollerInsets;
-
-    _mediaSourceTableViewScrollView.automaticallyAdjustsContentInsets = NO;
-    _mediaSourceTableViewScrollView.contentInsets = defaultInsets;
-    _mediaSourceTableViewScrollView.scrollerInsets = scrollerInsets;
-
-    const CGFloat collectionItemSpacing = [VLCLibraryUIUnits largeSpacing];
-    const NSEdgeInsets collectionViewSectionInset = NSEdgeInsetsMake(collectionItemSpacing,
-                                                                     collectionItemSpacing,
-                                                                     collectionItemSpacing,
-                                                                     collectionItemSpacing);
-
-    NSCollectionViewFlowLayout *audioLibraryCollectionViewLayout = _audioLibraryCollectionView.collectionViewLayout;
-    audioLibraryCollectionViewLayout.minimumLineSpacing = collectionItemSpacing;
-    audioLibraryCollectionViewLayout.minimumInteritemSpacing = collectionItemSpacing;
-    audioLibraryCollectionViewLayout.sectionInset = collectionViewSectionInset;
-
-    NSCollectionViewFlowLayout *audioLibraryGridModeListSelectionCollectionViewLayout = _audioLibraryGridModeSplitViewListSelectionCollectionView.collectionViewLayout;
-    audioLibraryGridModeListSelectionCollectionViewLayout.minimumLineSpacing = collectionItemSpacing;
-    audioLibraryGridModeListSelectionCollectionViewLayout.minimumInteritemSpacing = collectionItemSpacing;
-    audioLibraryGridModeListSelectionCollectionViewLayout.sectionInset = collectionViewSectionInset;
-
-    VLCLibraryVideoCollectionViewsStackViewController *videoLibraryStackViewController = _libraryVideoViewController.libraryVideoCollectionViewsStackViewController;
-    videoLibraryStackViewController.collectionViewItemSize = [VLCLibraryCollectionViewItem defaultVideoItemSize];
-    videoLibraryStackViewController.collectionViewMinimumLineSpacing = collectionItemSpacing;
-    videoLibraryStackViewController.collectionViewMinimumInteritemSpacing = collectionItemSpacing;
-    videoLibraryStackViewController.collectionViewSectionInset = collectionViewSectionInset;
-
-    NSCollectionViewFlowLayout *mediaSourceCollectionViewLayout = _mediaSourceCollectionView.collectionViewLayout;
-    mediaSourceCollectionViewLayout.itemSize = [VLCLibraryCollectionViewItem defaultSize];
-    mediaSourceCollectionViewLayout.minimumLineSpacing = collectionItemSpacing;
-    mediaSourceCollectionViewLayout.minimumInteritemSpacing = collectionItemSpacing;
-    mediaSourceCollectionViewLayout.sectionInset = collectionViewSectionInset;
-
     // HACK: The size of the segmented title buttons is not always correctly calculated
     // especially when the text we are setting differs from what is set in the storyboard.
     // Hiding and showing the toolbar again must trigger something that causes the width
@@ -348,11 +249,7 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self toggleToolbarShown:self];
     [self toggleToolbarShown:self];
 
-    // The playlist toggle button's default state is OFF so we set it to ON if the playlist
-    // is not collapsed when we open the library window
-    if (![_mainSplitView isSubviewCollapsed:_playlistView]) {
-        _playQueueToggle.state = NSControlStateValueOn;
-    }
+    [self updatePlayqueueToggleState];
 }
 
 - (void)dealloc
@@ -506,10 +403,6 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
     [self setViewForSelectedSegment];
     [self invalidateRestorableState];
-
-    if(sender != _navigationStack) {
-        [self.navigationStack appendCurrentLibraryState];
-    }
 }
 
 - (void)hideToolbarItem:(NSToolbarItem *)toolbarItem
@@ -594,6 +487,12 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self insertToolbarItem:_librarySearchToolbarItem inFrontOf:reversedCurrentToolbarItems];
 }
 
+- (void)updatePlayqueueToggleState
+{
+    _playQueueToggle.state = [_mainSplitView isSubviewCollapsed:_playlistView] ?
+        NSControlStateValueOff : NSControlStateValueOn;
+}
+
 - (void)showVideoLibrary
 {
     [self setForwardsBackwardsToolbarItemsVisible:NO];
@@ -624,6 +523,7 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 {
     NSParameterAssert(segment == VLCLibraryBrowseSegment || segment == VLCLibraryStreamsSegment);
 
+    [self.navigationStack clear];
     [self setForwardsBackwardsToolbarItemsVisible:YES];
     [self setSortOrderToolbarItemVisible:NO];
     [self setLibrarySearchToolbarItemVisible:NO];
@@ -771,9 +671,11 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     if ([_mainSplitView isSubviewCollapsed:_playlistView]) {
         [_mainSplitView setPosition:splitViewWidth - _lastPlaylistWidthBeforeCollaps ofDividerAtIndex:0];
         _playQueueToggle.state = NSControlStateValueOn;
+        self.videoViewController.playlistButton.state = NSControlStateValueOn;
     } else {
         [_mainSplitView setPosition:splitViewWidth ofDividerAtIndex:0];
         _playQueueToggle.state = NSControlStateValueOff;
+        self.videoViewController.playlistButton.state = NSControlStateValueOff;
     }
 }
 
@@ -784,7 +686,7 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
 - (IBAction)backwardsNavigationAction:(id)sender
 {
-    self.videoView.hidden ? [_navigationStack backwards] : [self disableVideoPlaybackAppearance];
+    self.videoViewController.view.hidden ? [_navigationStack backwards] : [self disableVideoPlaybackAppearance];
 }
 
 - (IBAction)forwardsNavigationAction:(id)sender
@@ -802,11 +704,18 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
 - (void)playerStateChanged:(NSNotification *)notification
 {
-    if(_playlistController.playerController.playerState != VLC_PLAYER_STATE_PLAYING) {
+    if (_playlistController.playerController.playerState == VLC_PLAYER_STATE_STOPPED) {
+        [self hideControlsBar];
         return;
     }
 
-    [self reopenVideoView];
+    if(_playlistController.playerController.playerState == VLC_PLAYER_STATE_PLAYING) {
+        [self reopenVideoView];
+    }
+
+    if (self.videoViewController.view.isHidden) {
+        [self showControlsBar];
+    }
 }
 
 // This handles reopening the video view when the user has closed it.
@@ -825,6 +734,23 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self enableVideoPlaybackAppearance];
 }
 
+- (void)hideControlsBar
+{
+    _controlsBar.bottomBarView.hidden = YES;
+    _videoViewBottomConstraint.priority = 1;
+    _splitViewBottomConstraintToBottomBar.priority = 1;
+    _splitViewBottomConstraintToSuperView.priority = 999;
+
+}
+
+- (void)showControlsBar
+{
+    _controlsBar.bottomBarView.hidden = NO;
+    _videoViewBottomConstraint.priority = 999;
+    _splitViewBottomConstraintToBottomBar.priority = 999;
+    _splitViewBottomConstraintToSuperView.priority = 1;
+}
+
 - (void)presentVideoView
 {
     for (NSView *subview in _libraryTargetView.subviews) {
@@ -833,20 +759,42 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     
     NSLog(@"Presenting video view in main library window.");
     
-    VLCVoutView *videoView = self.videoView;
+    NSView *videoView = self.videoViewController.view;
     videoView.translatesAutoresizingMaskIntoConstraints = NO;
     videoView.hidden = NO;
-    
+
     [_libraryTargetView addSubview:videoView];
     NSDictionary *dict = NSDictionaryOfVariableBindings(videoView);
-    [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"H:|[videoView(>=572.)]|"
-                                                                               options:0
-                                                                               metrics:0
-                                                                                 views:dict]];
-    [_libraryTargetView addConstraints:[NSLayoutConstraint constraintsWithVisualFormat:@"V:|[videoView(>=444.)]|"
-                                                                               options:0
-                                                                               metrics:0
-                                                                                 views:dict]];
+    [_libraryTargetView addConstraints:@[
+        [NSLayoutConstraint constraintWithItem:videoView
+                                     attribute:NSLayoutAttributeTop
+                                     relatedBy:NSLayoutRelationEqual
+                                        toItem:_libraryTargetView
+                                     attribute:NSLayoutAttributeTop
+                                    multiplier:1.
+                                      constant:0.],
+        [NSLayoutConstraint constraintWithItem:videoView
+                                     attribute:NSLayoutAttributeBottom
+                                     relatedBy:NSLayoutRelationEqual
+                                        toItem:_libraryTargetView
+                                     attribute:NSLayoutAttributeBottom
+                                    multiplier:1.
+                                      constant:0.],
+        [NSLayoutConstraint constraintWithItem:videoView
+                                     attribute:NSLayoutAttributeLeft
+                                     relatedBy:NSLayoutRelationEqual
+                                        toItem:_libraryTargetView
+                                     attribute:NSLayoutAttributeLeft
+                                    multiplier:1.
+                                      constant:0.],
+        [NSLayoutConstraint constraintWithItem:videoView
+                                     attribute:NSLayoutAttributeRight
+                                     relatedBy:NSLayoutRelationEqual
+                                        toItem:_libraryTargetView
+                                     attribute:NSLayoutAttributeRight
+                                    multiplier:1.
+                                      constant:0.]
+    ]];
 }
 
 - (void)enableVideoPlaybackAppearance
@@ -861,15 +809,14 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
     [self.librarySearchField setEnabled:NO];
     [self clearLibraryFilterString];
 
-    // Repurpose the back button
+    // Make sure the back button is visible...
+    [self insertToolbarItem:_backwardsToolbarItem inFrontOf:@[]];
+    // And repurpose it to hide the video view
     [self.backwardsNavigationButton setEnabled:YES];
 
-    if (self.isInNativeFullscreen && [self hasActiveVideo] && [self fullscreen]) {
-        [self hideControlsBar];
-        [_fspanel shouldBecomeActive:nil];
-    }
-
-    [(VLCLibraryWindowAutohideToolbar *)self.toolbar setAutohide:YES];
+    [self enableVideoTitleBarMode];
+    [self hideControlsBar];
+    [self.videoViewController showControls];
 }
 
 - (void)disableVideoPlaybackAppearance
@@ -879,7 +826,7 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
     // restore alpha value to 1 for the case that macosx-opaqueness is set to < 1
     [self setAlphaValue:1.0];
-    self.videoView.hidden = YES;
+    self.videoViewController.view.hidden = YES;
 
     [self.segmentedTitleControl setHidden:NO];
     [self.forwardsNavigationButton setHidden:NO];
@@ -892,21 +839,18 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 
     [self setViewForSelectedSegment];
 
-    if (self.isInNativeFullscreen) {
-        [self showControlsBar];
-        [_fspanel shouldBecomeInactive:nil];
-    }
-
-    [(VLCLibraryWindowAutohideToolbar *)self.toolbar setAutohide:NO];
+    [self disableVideoTitleBarMode];
+    [self showControlsBar];
 }
 
 - (void)mouseMoved:(NSEvent *)o_event
 {
-    if (!self.videoView.hidden) {
+    if (!self.videoViewController.view.hidden) {
         NSPoint mouseLocation = [o_event locationInWindow];
-        NSRect windowRectWithFrame = [self frameRectForContentRect:self.contentView.frame];
+        NSView *videoView = self.videoViewController.view;
+        NSRect videoViewRect = [videoView convertRect:videoView.frame toView:self.contentView];
 
-        if ([self.contentView mouse:mouseLocation inRect:windowRectWithFrame]) {
+        if ([self.contentView mouse:mouseLocation inRect:videoViewRect]) {
             [[NSNotificationCenter defaultCenter] postNotificationName:VLCVideoWindowShouldShowFullscreenController
                                                                 object:self];
         }
@@ -921,17 +865,28 @@ static void addShadow(NSImageView *__unsafe_unretained imageView)
 - (void)shouldShowController:(NSNotification *)aNotification
 {
     [self makeKeyAndOrderFront:nil];
+
+    if (self.videoViewController.view.isHidden) {
+        [self showControlsBar];
+        NSView *standardWindowButtonsSuperView = [self standardWindowButton:NSWindowCloseButton].superview;
+        standardWindowButtonsSuperView.hidden = NO;
+    }
 }
 
-- (void)shouldShowFullscreenController:(NSNotification *)aNotification
+- (void)windowWillEnterFullScreen:(NSNotification *)notification
 {
-    id currentWindow = [NSApp keyWindow];
-    if ([currentWindow respondsToSelector:@selector(hasActiveVideo)] && [currentWindow hasActiveVideo]) {
-        if ([currentWindow respondsToSelector:@selector(fullscreen)] && [currentWindow fullscreen] && ![[currentWindow videoView] isHidden]) {
-            if ([_playlistController.playerController activeVideoPlayback]) {
-                [_fspanel fadeIn];
-            }
-        }
+    [super windowWillEnterFullScreen:notification];
+
+    if (!self.videoViewController.view.hidden) {
+        [self hideControlsBar];
+    }
+}
+
+- (void)windowDidEnterFullScreen:(NSNotification *)notification
+{
+    [super windowDidEnterFullScreen:notification];
+    if (!self.videoViewController.view.hidden) {
+        [self showControlsBar];
     }
 }
 

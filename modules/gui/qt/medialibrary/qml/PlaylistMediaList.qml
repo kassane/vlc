@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2021 VLC authors and VideoLAN
+ * Copyright (C) 2021-23 VLC authors and VideoLAN
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,9 +27,10 @@ import org.videolan.vlc 0.1
 import "qrc:///widgets/" as Widgets
 import "qrc:///main/"    as MainInterface
 import "qrc:///util/"    as Util
+import "qrc:///util/Helpers.js" as Helpers
 import "qrc:///style/"
 
-FocusScope {
+MainInterface.MainViewLoader {
     id: root
 
     //---------------------------------------------------------------------------------------------
@@ -38,9 +39,7 @@ FocusScope {
 
     property bool isMusic: false
 
-    readonly property int currentIndex: _currentView.currentIndex
-
-    property int initialIndex: 0
+    readonly property int currentIndex: Helpers.get(currentItem, "currentIndex", -1)
 
     property var sortModel: [{ text: I18n.qtr("Alphabetic"), criteria: "title" }]
 
@@ -62,16 +61,8 @@ FocusScope {
     property string _placeHolder: (isMusic) ? VLCStyle.noArtAlbumCover
                                             : VLCStyle.noArtVideoCover
 
-    //---------------------------------------------------------------------------------------------
-    // Alias
-    //---------------------------------------------------------------------------------------------
-
-    property alias leftPadding: view.leftPadding
-    property alias rightPadding: view.rightPadding
-
-    property alias model: model
-
-    property alias _currentView: view.currentItem
+    // FIXME: remove this
+    property var _currentView: currentItem
 
     //---------------------------------------------------------------------------------------------
     // Signals
@@ -84,99 +75,24 @@ FocusScope {
     //---------------------------------------------------------------------------------------------
 
     // NOTE: Define the initial position and selection. This is done on activeFocus rather than
-    //       Component.onCompleted because modelSelect.selectedGroup update itself after this
+    //       Component.onCompleted because selectionModel.selectedGroup update itself after this
     //       event.
     onActiveFocusChanged: {
-        if (activeFocus == false || model.count === 0 || modelSelect.hasSelection)
+        if (activeFocus == false || model.count === 0 || selectionModel.hasSelection)
             return;
 
-        var initialIndex = 0;
-
-        if (_currentView.currentIndex !== -1) {
-            initialIndex = _currentView.currentIndex;
-        }
-
-        modelSelect.select(model.index(initialIndex, 0), ItemSelectionModel.ClearAndSelect);
-
-        _currentView.currentIndex = initialIndex;
+        resetFocus()
     }
 
-    onInitialIndexChanged: resetFocus()
-
-    //---------------------------------------------------------------------------------------------
-    // Connections
-    //---------------------------------------------------------------------------------------------
-
-    Connections {
-        target: MainCtx
-
-        onGridViewChanged: {
-            if (MainCtx.gridView) view.replace(grid);
-            else                        view.replace(table);
-        }
-    }
-
-    //---------------------------------------------------------------------------------------------
-    // Functions
-    //---------------------------------------------------------------------------------------------
-
-    function resetFocus() {
-        if (model.count === 0)
-            return;
-
-        var initialIndex = root.initialIndex;
-
-        if (initialIndex >= model.count)
-            initialIndex = 0;
-
-        modelSelect.select(model.index(initialIndex, 0), ItemSelectionModel.ClearAndSelect);
-
-        if (_currentView)
-            _currentView.positionViewAtIndex(initialIndex, ItemView.Contain);
-    }
-
-    function setCurrentItemFocus(reason) {
-        _currentView.setCurrentItemFocus(reason);
-    }
 
     //---------------------------------------------------------------------------------------------
     // Private
 
-    function _actionAtIndex() {
-        if (modelSelect.selectedIndexes.length > 1) {
-            MediaLib.addAndPlay(model.getIdsForIndexes(modelSelect.selectedIndexes));
-        } else if (modelSelect.selectedIndexes.length === 1) {
-            var index = modelSelect.selectedIndexes[0];
-            showList(model.getDataAt(index), Qt.TabFocusReason);
-        }
-    }
+    grid: grid
+    list: table
+    emptyLabel: emptyLabel
 
-    function _getCount(model)
-    {
-        var count = model.count;
-
-        if (count < 100)
-            return count;
-        else
-            return I18n.qtr("99+");
-    }
-
-    function _onNavigationCancel() {
-        if (_currentView.currentIndex <= 0) {
-            Navigation.defaultNavigationCancel()
-        } else {
-            _currentView.currentIndex = 0;
-            _currentView.positionViewAtIndex(0, ItemView.Contain);
-        }
-    }
-
-    //---------------------------------------------------------------------------------------------
-    // Childs
-    //---------------------------------------------------------------------------------------------
-
-    MLPlaylistListModel {
-        id: model
-
+    model: MLPlaylistListModel {
         ml: MediaLib
 
         coverSize: (isMusic) ? Qt.size(512, 512)
@@ -185,43 +101,43 @@ FocusScope {
         coverDefault: root._placeHolder
 
         coverPrefix: (isMusic) ? "playlist-music" : "playlist-video"
+    }
 
-        onCountChanged: {
-            if (count === 0 || modelSelect.hasSelection)
-                return;
-
-            resetFocus();
+    function _actionAtIndex() {
+        if (root.selectionModel.selectedIndexes.length > 1) {
+            MediaLib.addAndPlay(model.getIdsForIndexes(selectionModel.selectedIndexes));
+        } else if (root.selectionModel.selectedIndexes.length === 1) {
+            var index = selectionModel.selectedIndexes[0];
+            showList(model.getDataAt(index), Qt.TabFocusReason);
         }
     }
 
-    Widgets.StackViewExt {
-        id: view
+    function _getCount(model) {
+        var count = model.count;
 
-        anchors.fill: parent
-
-        initialItem: (MainCtx.gridView) ? grid : table
-
-        focus: (model.count !== 0)
+        if (count < 100)
+            return count;
+        else
+            return I18n.qtr("99+");
     }
+
+    //---------------------------------------------------------------------------------------------
+    // Childs
+    //---------------------------------------------------------------------------------------------
+
 
     Widgets.MLDragItem {
         id: dragItemPlaylist
 
         mlModel: model
 
-        indexes: modelSelect.selectedIndexes
+        indexes: selectionModel.selectedIndexes
 
         coverRole: "thumbnail"
 
         defaultCover: root._placeHolder
 
         titleRole: "name"
-    }
-
-    Util.SelectableDelegateModel {
-        id: modelSelect
-
-        model: root.model
     }
 
     PlaylistListContextMenu {
@@ -247,11 +163,9 @@ FocusScope {
 
             model: root.model
 
-            selectionDelegateModel: modelSelect
+            selectionDelegateModel: selectionModel
 
             Navigation.parentItem: root
-
-            Navigation.cancelAction: root._onNavigationCancel
 
             delegate: VideoGridItem {
                 //---------------------------------------------------------------------------------
@@ -288,7 +202,7 @@ FocusScope {
                 onContextMenuButtonClicked: {
                     gridView.rightClickOnItem(index);
 
-                    contextMenu.popup(modelSelect.selectedIndexes, globalMousePos);
+                    contextMenu.popup(selectionModel.selectedIndexes, globalMousePos);
                 }
 
                 //---------------------------------------------------------------------------------
@@ -301,13 +215,13 @@ FocusScope {
             // Events
 
             // NOTE: Define the initial position and selection. This is done on activeFocus rather
-            //       than Component.onCompleted because modelSelect.selectedGroup update itself
+            //       than Component.onCompleted because selectionModel.selectedGroup update itself
             //       after this event.
             onActiveFocusChanged: {
-                if (activeFocus == false || model.count === 0 || modelSelect.hasSelection)
+                if (activeFocus == false || model.count === 0 || selectionModel.hasSelection)
                     return;
 
-                modelSelect.select(model.index(0,0), ItemSelectionModel.ClearAndSelect)
+                selectionModel.select(model.index(0,0), ItemSelectionModel.ClearAndSelect)
             }
 
             onActionAtIndex: _actionAtIndex()
@@ -329,22 +243,22 @@ FocusScope {
 
             property int _columns: Math.max(1, VLCStyle.gridColumnsForWidth(availableRowWidth) - 2)
 
-            //-------------------------------------------------------------------------------------
-            // Settings
+            property var _modelSmall: [{
+                size: Math.max(2, _columns),
 
-            rowHeight: VLCStyle.tableCoverRow_height
+                model: {
+                    criteria: "name",
 
-            headerTopPadding: VLCStyle.margin_normal
+                    subCriterias: [ "count" ],
 
-            model: root.model
+                    text: I18n.qtr("Name"),
 
-            selectionDelegateModel: modelSelect
+                    headerDelegate: columns.titleHeaderDelegate,
+                    colDelegate   : columns.titleDelegate
+                }
+            }]
 
-            dragItem: dragItemPlaylist
-
-            headerColor: VLCStyle.colors.bg
-
-            sortModel: [{
+            property var _modelMedium: [{
                 size: 1,
 
                 model: {
@@ -371,8 +285,23 @@ FocusScope {
                 }
             }]
 
+            //-------------------------------------------------------------------------------------
+            // Settings
+
+            rowHeight: VLCStyle.tableCoverRow_height
+
+            headerTopPadding: VLCStyle.margin_normal
+
+            model: root.model
+
+            sortModel: (availableRowWidth < VLCStyle.colWidth(4)) ? _modelSmall
+                                                                  : _modelMedium
+
+            selectionDelegateModel: selectionModel
+
+            dragItem: dragItemPlaylist
+
             Navigation.parentItem: root
-            Navigation.cancelAction: root._onNavigationCancel
 
             //-------------------------------------------------------------------------------------
             // Events
@@ -381,10 +310,10 @@ FocusScope {
 
             onItemDoubleClicked: showList(model, Qt.MouseFocusReason)
 
-            onContextMenuButtonClicked: contextMenu.popup(modelSelect.selectedIndexes,
+            onContextMenuButtonClicked: contextMenu.popup(selectionModel.selectedIndexes,
                                                           globalMousePos)
 
-            onRightClick: contextMenu.popup(modelSelect.selectedIndexes, globalMousePos)
+            onRightClick: contextMenu.popup(selectionModel.selectedIndexes, globalMousePos)
 
             //-------------------------------------------------------------------------------------
             // Childs
@@ -392,7 +321,8 @@ FocusScope {
             Widgets.TableColumns {
                 id: columns
 
-                showTitleText: false
+                showTitleText: (tableView.sortModel === tableView._modelSmall)
+                showCriterias: showTitleText
 
                 criteriaCover: "thumbnail"
 
@@ -418,16 +348,18 @@ FocusScope {
         }
     }
 
-    EmptyLabelHint {
-        anchors.fill: parent
+    Component {
+        id: emptyLabel
 
-        visible: (model.count === 0)
+        EmptyLabelHint {
+            visible: (model.count === 0)
 
-        focus: visible
+            focus: true
 
-        text: I18n.qtr("No playlists found")
-        hint: I18n.qtr("Right click on a media to add it to a playlist")
+            text: I18n.qtr("No playlists found")
+            hint: I18n.qtr("Right click on a media to add it to a playlist")
 
-        cover: VLCStyle.noArtAlbumCover
+            cover: VLCStyle.noArtAlbumCover
+        }
     }
 }

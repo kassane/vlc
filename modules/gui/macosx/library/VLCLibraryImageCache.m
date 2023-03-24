@@ -27,6 +27,8 @@
 
 #import "main/VLCMain.h"
 
+#import "playlist/VLCPlaylistItem.h"
+
 NSUInteger kVLCMaximumLibraryImageCacheSize = 50;
 uint32_t kVLCDesiredThumbnailWidth = 512;
 uint32_t kVLCDesiredThumbnailHeight = 512;
@@ -62,12 +64,12 @@ float kVLCDefaultThumbnailPosition = .15;
     return sharedImageCache;
 }
 
-+ (NSImage *)thumbnailForLibraryItem:(id<VLCMediaLibraryItemProtocol>)libraryItem
++ (NSImage *)thumbnailForLibraryItem:(VLCAbstractMediaLibraryItem*)libraryItem
 {
     return [[VLCLibraryImageCache sharedImageCache] imageForLibraryItem:libraryItem];
 }
 
-- (NSImage *)imageForLibraryItem:(id<VLCMediaLibraryItemProtocol>)libraryItem
+- (NSImage *)imageForLibraryItem:(VLCAbstractMediaLibraryItem*)libraryItem
 {
     NSImage *cachedImage = [_imageCache objectForKey:libraryItem.smallArtworkMRL];
     if (cachedImage) {
@@ -76,7 +78,7 @@ float kVLCDefaultThumbnailPosition = .15;
     return [self smallThumbnailForLibraryItem:libraryItem];
 }
 
-- (NSImage *)smallThumbnailForLibraryItem:(id<VLCMediaLibraryItemProtocol>)libraryItem
+- (NSImage *)smallThumbnailForLibraryItem:(VLCAbstractMediaLibraryItem*)libraryItem
 {
     NSImage *image;
     NSString *artworkMRL = libraryItem.smallArtworkMRL;
@@ -141,6 +143,11 @@ float kVLCDefaultThumbnailPosition = .15;
     }
 
     return image;
+}
+
++ (NSImage *)thumbnailForPlaylistItem:(VLCPlaylistItem *)playlistItem
+{
+    return [VLCLibraryImageCache.sharedImageCache imageForInputItem:playlistItem.inputItem];
 }
 
 @end

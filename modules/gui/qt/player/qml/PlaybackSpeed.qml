@@ -19,7 +19,6 @@
 import QtQuick 2.11
 import QtQuick.Controls 2.4
 import QtQuick.Layouts 1.11
-import QtQuick.Templates 2.4 as T
 
 import org.videolan.vlc 0.1
 
@@ -29,10 +28,6 @@ import "qrc:///util/Helpers.js" as Helpers
 
 ColumnLayout {
     id: root
-
-    // Properties
-
-    property VLCColors colors: VLCStyle.nightColors
 
     // Private
 
@@ -61,8 +56,8 @@ ColumnLayout {
 
     property real _threshold: 0.03
 
-    property color _color: (slider.visualFocus || slider.pressed) ? colors.accent
-                                                                  : colors.text
+    property color _color: (slider.visualFocus || slider.pressed) ? theme.accent
+                                                                  : theme.fg.primary
 
     // Settings
 
@@ -114,11 +109,15 @@ ColumnLayout {
             slider.value = Math.min(value, slider.to)
     }
 
+    function sliderToSpeed(value) {
+        return Math.pow(2, value / 17)
+    }
+
     function _applyPlayer(value) {
         if (_update === false)
             return
 
-        value = Math.pow(2, value / 17)
+        value = sliderToSpeed(value)
 
         if (_shiftPressed === false) {
             for (var i = 0; i < _values.length; i++) {
@@ -155,6 +154,11 @@ ColumnLayout {
 
     // Children
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.Window
+    }
+
     Widgets.SubtitleLabel {
         id: label
 
@@ -164,7 +168,7 @@ ColumnLayout {
 
         text: I18n.qtr("Playback Speed")
 
-        color: root.colors.text
+        color: theme.fg.primary
     }
 
     Item {
@@ -185,7 +189,7 @@ ColumnLayout {
 
             text: I18n.qtr("0.25")
 
-            color: label.color
+            color: theme.fg.primary
 
             font.pixelSize: VLCStyle.fontSize_normal
         }
@@ -197,8 +201,6 @@ ColumnLayout {
             width: VLCStyle.dp(64, VLCStyle.scale)
 
             anchors.centerIn: parent
-
-            colors: root.colors
 
             focus: true
 
@@ -212,7 +214,7 @@ ColumnLayout {
 
                 text: I18n.qtr("1.00x")
 
-                color: buttonReset.background.foregroundColor
+                color: theme.fg.primary
 
                 font.pixelSize: VLCStyle.fontSize_xlarge
             }
@@ -225,18 +227,16 @@ ColumnLayout {
 
             text: I18n.qtr("4.00")
 
-            color: label.color
+            color: theme.fg.primary
 
             font.pixelSize: VLCStyle.fontSize_normal
         }
     }
 
-    T.Slider {
+    Widgets.Slider {
         id: slider
 
         Layout.fillWidth: true
-
-        implicitHeight: VLCStyle.heightBar_small
 
         // NOTE: These values come from the VLC 3.x implementation.
         from: -34
@@ -246,6 +246,12 @@ ColumnLayout {
 
         wheelEnabled: true
 
+        valueText: function (value) {
+            return sliderToSpeed(value).toFixed(2)
+        }
+
+        tooltipFollowsMouse: true
+
         Navigation.parentItem: root
         Navigation.upItem: buttonReset
         Navigation.downItem: comboBox
@@ -254,42 +260,6 @@ ColumnLayout {
         Keys.onPressed: Navigation.defaultKeyAction(event)
 
         onValueChanged: root._applyPlayer(value)
-
-        background: Rectangle {
-            width: slider.availableWidth
-            height: implicitHeight
-
-            implicitWidth: VLCStyle.dp(256, VLCStyle.scale)
-            implicitHeight: VLCStyle.dp(4, VLCStyle.scale)
-
-            x: slider.leftPadding
-            y: slider.topPadding + slider.availableHeight / 2 - height / 2
-
-            radius: VLCStyle.dp(2, VLCStyle.scale)
-
-            color: root.colors.bgAlt
-
-            Rectangle {
-                width: slider.visualPosition * parent.width
-                height: parent.height
-
-                radius: parent.radius
-
-                color: root._color
-            }
-        }
-
-        handle: Rectangle {
-            width: slider.implicitHeight
-            height: slider.implicitHeight
-
-            x: slider.leftPadding + slider.visualPosition * (slider.availableWidth - width)
-            y: slider.topPadding + slider.availableHeight / 2 - height / 2
-
-            radius: slider.implicitHeight
-
-            color: root._color
-        }
 
         MouseArea {
             anchors.fill: parent
@@ -328,10 +298,6 @@ ColumnLayout {
             // NOTE: We display the 'Normal' string when the Slider is centered.
             displayText: (currentIndex === 3) ? currentText
                                               : root._value
-
-            color: root.colors.buttonText
-            bgColor: root.colors.button
-            borderColor: root.colors.buttonBorder
 
             Navigation.parentItem: rowB
 

@@ -59,7 +59,7 @@ int utf8_vfprintf( FILE *stream, const char *fmt, va_list ap )
     if (unlikely(res == -1))
         return -1;
 
-#ifndef VLC_WINSTORE_APP
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
     /* Writing to the console is a lot of fun on Microsoft Windows.
      * If you use the standard I/O functions, you must use the OEM code page,
      * which is different from the usual ANSI code page. Or maybe not, if the
@@ -89,7 +89,9 @@ int utf8_vfprintf( FILE *stream, const char *fmt, va_list ap )
     }
     else
         res = -1;
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_APP)
 out:
+#endif
     free (str);
     return res;
 #endif
@@ -110,7 +112,7 @@ int utf8_fprintf( FILE *stream, const char *fmt, ... )
     return res;
 }
 
-size_t vlc_towc (const char *str, uint32_t *restrict pwc)
+ssize_t vlc_towc (const char *str, uint32_t *restrict pwc)
 {
     assert (str != NULL);
 
@@ -212,6 +214,8 @@ char *vlc_strcasestr (const char *haystack, const char *needle)
         }
 
         s = vlc_towc (haystack, &(uint32_t) { 0 });
+        if (unlikely(s < 0))
+            return NULL;
         haystack += s;
     }
     while (s > 0);
@@ -307,4 +311,3 @@ void *ToCharset(const char *charset, const char *in, size_t *outsize)
     vlc_iconv_close (hd);
     return res;
 }
-

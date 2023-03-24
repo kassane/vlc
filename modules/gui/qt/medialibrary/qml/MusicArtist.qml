@@ -110,6 +110,7 @@ FocusScope {
                         id: albumsText
 
                         text: I18n.qtr("Albums")
+                        color: theme.fg.primary
                         leftPadding: VLCStyle.margin_xlarge
                         topPadding: VLCStyle.margin_normal
                         bottomPadding: VLCStyle.margin_xsmall
@@ -129,8 +130,6 @@ FocusScope {
                         model: albumModel
                         orientation: ListView.Horizontal
                         spacing: VLCStyle.column_spacing
-
-                        backgroundColor: VLCStyle.colors.bg
 
                         Navigation.parentItem: root
 
@@ -187,6 +186,7 @@ FocusScope {
                         id: tracksText
 
                         text: I18n.qtr("Tracks")
+                        color: theme.fg.primary
                         leftPadding: VLCStyle.margin_xlarge
                         topPadding: VLCStyle.margin_large
                     }
@@ -252,6 +252,11 @@ FocusScope {
             root.Navigation.defaultNavigationCancel()
         else
             tableView_id.currentIndex = 0;
+    }
+
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.View
     }
 
     MLAlbumModel {
@@ -399,7 +404,6 @@ FocusScope {
             clip: true // content may overflow if not enough space is provided
             model: trackModel
             selectionDelegateModel: trackSelectionModel
-            headerColor: VLCStyle.colors.bg
             onActionForSelection: {
                 MediaLib.addAndPlay( model.getIdsForIndexes( selection ) )
             }
@@ -408,7 +412,22 @@ FocusScope {
             headerPositioning: ListView.InlineHeader
             rowHeight: VLCStyle.tableCoverRow_height
 
-            sortModel: [{
+            property var _modelSmall: [{
+                size: Math.max(2, tableView_id._nbCols),
+
+                model: {
+                    criteria: "title",
+
+                    subCriterias: [ "duration", "album_title" ],
+
+                    text: I18n.qtr("Title"),
+
+                    headerDelegate: tableColumns.titleHeaderDelegate,
+                    colDelegate: tableColumns.titleDelegate
+                }
+            }]
+
+            property var _modelMedium: [{
                 size: 2,
 
                 model: {
@@ -420,7 +439,7 @@ FocusScope {
                     colDelegate: tableColumns.titleDelegate
                 }
             }, {
-                size: Math.max(tableView_id._nbCols - 3, 1),
+                size: Math.max(1, tableView_id._nbCols - 3),
 
                 model: {
                     criteria: "album_title",
@@ -439,6 +458,9 @@ FocusScope {
                     colDelegate: tableColumns.timeColDelegate
                 }
             }]
+
+            sortModel: (availableRowWidth < VLCStyle.colWidth(4)) ? _modelSmall
+                                                                  : _modelMedium
 
             Navigation.parentItem: root
 
@@ -464,6 +486,8 @@ FocusScope {
 
             Widgets.TableColumns {
                 id: tableColumns
+
+                showCriterias: (tableView_id.sortModel === tableView_id._modelSmall)
             }
 
             Util.SelectableDelegateModel {

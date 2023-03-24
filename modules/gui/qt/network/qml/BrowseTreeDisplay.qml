@@ -184,6 +184,7 @@ FocusScope {
                     Widgets.SubtitleLabel {
                         text: providerModel.name
                         leftPadding: gridView.rowX
+                        color: gridView.colorContext.fg.primary
 
                         Layout.fillWidth: true
                     }
@@ -245,27 +246,78 @@ FocusScope {
 
             readonly property int _nbCols: VLCStyle.gridColumnsForWidth(tableView.availableRowWidth)
             readonly property int _nameColSpan: Math.max((_nbCols - 1) / 2, 1)
-            property Component thumbnailHeader: Item {
-                Widgets.IconLabel {
-                    height: VLCStyle.listAlbumCover_height
-                    width: VLCStyle.listAlbumCover_width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: VLCIcons.album_cover
-                    color: VLCStyle.colors.caption
-                }
+            property Component thumbnailHeader: Widgets.IconLabel {
+                height: VLCStyle.listAlbumCover_height
+                width: VLCStyle.listAlbumCover_width
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.pixelSize: VLCStyle.icon_tableHeader
+                text: VLCIcons.album_cover
+                color: tableView.colorContext.fg.secondary
             }
 
             property Component thumbnailColumn: NetworkThumbnailItem {
                 onPlayClicked: playAt(index)
             }
 
+            property var _modelSmall: [{
+                size: Math.max(2, _nbCols),
+
+                model: ({
+                    criteria: "name",
+
+                    title: "name",
+
+                    subCriterias: [ "mrl" ],
+
+                    text: I18n.qtr("Name"),
+
+                    headerDelegate: thumbnailHeader,
+                    colDelegate: thumbnailColumn
+                })
+            }]
+
+            property var _modelMedium: [{
+                size: 1,
+
+                model: {
+                    criteria: "thumbnail",
+
+                    headerDelegate: thumbnailHeader,
+                    colDelegate: thumbnailColumn
+                }
+            }, {
+                size: tableView._nameColSpan,
+
+                model: {
+                    criteria: "name",
+
+                    text: I18n.qtr("Name")
+                }
+            }, {
+                size: Math.max(_nbCols - _nameColSpan - 1, 1),
+
+                model: {
+                    criteria: "mrl",
+
+                    text: I18n.qtr("Url"),
+
+                    showContextButton: true
+                }
+            }]
+
             dragItem: networkDragItem
             height: view.height
             width: view.width
+
             model: filterModel
+
+            sortModel: (availableRowWidth < VLCStyle.colWidth(4)) ? _modelSmall
+                                                                  : _modelMedium
+
             selectionDelegateModel: selectionModel
             focus: true
-            headerColor: VLCStyle.colors.bg
+
             Navigation.parentItem: root
             Navigation.upItem: tableView.headerItem
 
@@ -291,6 +343,7 @@ FocusScope {
                     Widgets.SubtitleLabel {
                         text: providerModel.name
                         leftPadding: VLCStyle.margin_large
+                        color: tableView.colorContext.fg.primary
 
                         Layout.fillWidth: true
                     }
@@ -314,35 +367,6 @@ FocusScope {
                     }
                 }
             }
-
-            sortModel: [{
-                size: 1,
-
-                model: {
-                    criteria: "thumbnail",
-
-                    headerDelegate: tableView.thumbnailHeader,
-                    colDelegate: tableView.thumbnailColumn
-                }
-            }, {
-                size: tableView._nameColSpan,
-
-                model: {
-                    criteria: "name",
-
-                    text: I18n.qtr("Name")
-                }
-            }, {
-                size: Math.max(tableView._nbCols - tableView._nameColSpan - 1, 1),
-
-                model: {
-                    criteria: "mrl",
-
-                    text: I18n.qtr("Url"),
-
-                    showContextButton: true
-                }
-            }]
 
             onActionForSelection: _actionAtIndex(selection[0].row)
             onItemDoubleClicked: _actionAtIndex(index)

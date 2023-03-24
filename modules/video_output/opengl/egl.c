@@ -472,16 +472,16 @@ out:
 
 static void DestroySurface(vlc_gl_t *gl)
 {
-    AWindowHandler_releaseANativeWindow(gl->surface->handle.anativewindow,
-                                        AWindow_Video);
+    AWindowHandler_releaseANativeWindow(gl->surface->display.anativewindow,
+                                        gl->surface->handle.android_id);
 }
 
 static EGLSurface CreateSurface(vlc_gl_t *gl, EGLDisplay dpy, EGLConfig config,
                                 unsigned int width, unsigned int height)
 {
     ANativeWindow *anw =
-        AWindowHandler_getANativeWindow(gl->surface->handle.anativewindow,
-                                        AWindow_Video);
+        AWindowHandler_getANativeWindow(gl->surface->display.anativewindow,
+                                        gl->surface->handle.android_id);
 
     (void) width; (void) height;
     return (anw != NULL) ? eglCreateWindowSurface(dpy, config, anw, NULL)
@@ -597,7 +597,8 @@ static void InitEGL(void)
  * Probe EGL display availability
  */
 static int Open(vlc_gl_t *gl, const struct gl_api *api,
-                unsigned width, unsigned height)
+                unsigned width, unsigned height,
+                const struct vlc_gl_cfg *gl_cfg)
 {
     InitEGL();
 
@@ -644,6 +645,7 @@ static int Open(vlc_gl_t *gl, const struct gl_api *api,
         EGL_RED_SIZE, 5,
         EGL_GREEN_SIZE, 5,
         EGL_BLUE_SIZE, 5,
+        EGL_ALPHA_SIZE, gl_cfg->need_alpha ? 5 : 0,
         EGL_RENDERABLE_TYPE, api->render_bit,
         EGL_NONE
     };
@@ -699,22 +701,24 @@ error:
     return ret;
 }
 
-static int OpenGLES2(vlc_gl_t *gl, unsigned width, unsigned height)
+static int OpenGLES2(vlc_gl_t *gl, unsigned width, unsigned height,
+                     const struct vlc_gl_cfg *gl_cfg)
 {
     static const struct gl_api api = {
         "OpenGL_ES", EGL_OPENGL_ES_API, 4, EGL_OPENGL_ES2_BIT,
         { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE },
     };
-    return Open(gl, &api, width, height);
+    return Open(gl, &api, width, height, gl_cfg);
 }
 
-static int OpenGL(vlc_gl_t *gl, unsigned width, unsigned height)
+static int OpenGL(vlc_gl_t *gl, unsigned width, unsigned height,
+                  const struct vlc_gl_cfg *gl_cfg)
 {
     static const struct gl_api api = {
         "OpenGL", EGL_OPENGL_API, 4, EGL_OPENGL_BIT,
         { EGL_NONE },
     };
-    return Open(gl, &api, width, height);
+    return Open(gl, &api, width, height, gl_cfg);
 }
 
 #ifdef USE_PLATFORM_XCB
@@ -728,13 +732,11 @@ vlc_module_begin ()
     set_shortname (N_("EGL"))
     set_description (N_("EGL extension for OpenGL"))
     set_subcategory (SUBCAT_VIDEO_VOUT)
-    set_capability("opengl", VLC_PRIORITY)
-    set_callback(OpenGL)
+    set_callback_opengl(OpenGL, VLC_PRIORITY)
     add_shortcut ("egl")
 
     add_submodule ()
-    set_capability("opengl es2", VLC_PRIORITY)
-    set_callback(OpenGLES2)
+    set_callback_opengl_es2(OpenGLES2, VLC_PRIORITY)
     add_shortcut ("egl")
 
 vlc_module_end ()

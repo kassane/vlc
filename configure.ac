@@ -750,7 +750,7 @@ dnl Check for system libs needed
 need_libc=false
 
 dnl Check for usual libc functions
-AC_CHECK_FUNCS([accept4 dup3 fcntl flock fstatat fstatvfs fork getmntent_r getenv getpwuid_r isatty memalign mkostemp mmap open_memstream newlocale pipe2 posix_fadvise setlocale stricmp uselocale wordexp])
+AC_CHECK_FUNCS([accept4 dup3 fcntl flock fstatat fstatvfs fork getmntent_r getenv getpwuid_r isatty memalign mkostemp mmap open_memstream newlocale pipe2 posix_fadvise setlocale uselocale wordexp])
 AC_REPLACE_FUNCS([aligned_alloc asprintf atof atoll dirfd fdopendir flockfile fsync getdelim getpid gmtime_r lfind lldiv localtime_r memrchr nrand48 poll posix_memalign readv recvmsg rewind sendmsg setenv strcasecmp strcasestr strdup strlcpy strndup strnlen strnstr strsep strtof strtok_r strtoll swab tdestroy tfind timegm timespec_get strverscmp vasprintf writev])
 AC_REPLACE_FUNCS([gettimeofday])
 AC_CHECK_FUNC(fdatasync,,
@@ -3971,6 +3971,7 @@ AS_IF([test "${enable_qt}" != "no"], [
 
       QT_PATH="$(eval $PKG_CONFIG --variable=exec_prefix Qt5Core)"
       QT_HOST_PATH="$(eval $PKG_CONFIG --variable=host_bins Qt5Core)"
+      QT_INCLUDE_DIRECTORY="$(eval $PKG_CONFIG --variable=includedir Qt5Core)"
       QT_VERSION="$(eval $PKG_CONFIG --modversion Qt5Gui)"
       AC_PATH_PROGS(MOC, [moc-qt5 moc], moc, ["${QT_HOST_PATH}" "${QT_PATH}/bin"])
       AC_PATH_PROGS(RCC, [rcc-qt5 rcc], rcc, ["${QT_HOST_PATH}" "${QT_PATH}/bin"])
@@ -3979,6 +3980,28 @@ AS_IF([test "${enable_qt}" != "no"], [
       AS_IF([test "${QMLCACHE}" = "no"], [
           AC_MSG_WARN([qmlcachegen not found])
       ])
+
+      dnl Check private headers avaibility
+      VLC_SAVE_FLAGS
+      CPPFLAGS="${CPPFLAGS} ${QT_CFLAGS}"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtCore/${QT_VERSION}"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtCore/${QT_VERSION}/QtCore"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtGui/${QT_VERSION}"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtGui/${QT_VERSION}/QtGui"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtQml/${QT_VERSION}"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtQml/${QT_VERSION}/QtQml"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtQuick/${QT_VERSION}"
+      CPPFLAGS="${CPPFLAGS} -I${QT_INCLUDE_DIRECTORY}/QtQuick/${QT_VERSION}/QtQuick"
+
+      AS_IF([test "${SYS}" != "mingw32"], [
+          CPPFLAGS="${CPPFLAGS} -fPIC"
+      ])
+
+      AC_LANG_PUSH([C++])
+      AC_CHECK_HEADERS([private/qquickitem_p.h private/qquickwindow_p.h],
+         [have_declarative_private="yes"], [])
+      AC_LANG_POP([C++])
+      VLC_RESTORE_FLAGS
 
       VLC_SAVE_FLAGS
       CPPFLAGS="${CPPFLAGS} ${QT_CFLAGS}"
@@ -4044,10 +4067,12 @@ AS_IF([test "${enable_qt}" != "no"], [
   ALIASES="${ALIASES} qvlc"
 ])
 AC_SUBST([QT_VERSION])
+AC_SUBST([QT_INCLUDE_DIRECTORY])
 AM_CONDITIONAL([ENABLE_QT], [test "$enable_qt" != "no"])
 AM_CONDITIONAL([HAVE_QT5_X11], [test "${have_qt5_x11}" = "yes"])
 AM_CONDITIONAL([HAVE_QT5_WAYLAND], [test "${have_qt5_wayland}" = "yes"])
 AM_CONDITIONAL([HAVE_QT5_GTK], [test "${have_qt5_gtk}" = "yes"])
+AM_CONDITIONAL([HAVE_QT5_DECLARATIVE_PRIVATE], [test "${have_declarative_private}" = "yes"])
 
 dnl
 dnl detect kde4-config patch (used for kde solids).
@@ -4138,6 +4163,25 @@ then
     AC_PATH_PROG(XIB, [ibtool], [no])
     AS_IF([test "${XIB}" = "no"], [
       AC_MSG_ERROR([ibtool was not found, but is required for --enable-macosx])
+    ])
+  ])
+
+  dnl
+  dnl If possible, use xcrun to find the right actool
+  dnl
+
+  AS_IF([test ! "${XCRUN}" = "no"], [
+    AC_MSG_CHECKING([for actool (using xcrun)])
+    ACTOOL="$(eval $XCRUN -f actool 2>/dev/null || echo no)"
+    AC_MSG_RESULT([${ACTOOL}])
+  ], [
+    AC_MSG_WARN([Looking for tools without using xcrun])
+  ])
+
+  AS_IF([test "${ACTOOL}" = "no"], [
+    AC_PATH_PROG(ACTOOL, [actool], [no])
+    AS_IF([test "${ACTOOL}" = "no"], [
+      AC_MSG_ERROR([actool was not found, but is required for --enable-macosx])
     ])
   ])
 fi

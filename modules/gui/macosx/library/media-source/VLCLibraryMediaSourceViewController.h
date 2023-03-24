@@ -24,6 +24,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@class VLCInputNodePathControl;
 @class VLCLibraryWindow;
 @class VLCMediaSourceBaseDataSource;
 
@@ -31,12 +32,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readonly) NSView *libraryTargetView;
 @property (readonly) NSView *mediaSourceView;
+@property (readonly) NSTableView *mediaSourceTableView;
 @property (readonly) NSCollectionView *collectionView;
 @property (readonly) NSScrollView *collectionViewScrollView;
 @property (readonly) NSTableView *tableView;
 @property (readonly) NSScrollView *tableViewScrollView;
 @property (readonly) NSButton *homeButton;
-@property (readonly) NSPathControl *pathControl;
+@property (readonly) VLCInputNodePathControl *pathControl;
 @property (readonly) NSSegmentedControl *gridVsListSegmentedControl;
 
 @property (readonly) VLCMediaSourceBaseDataSource *baseDataSource;

@@ -135,7 +135,7 @@ static char *mp4_getstringz( uint8_t **restrict in, uint64_t *restrict size )
  *  either 0xA9 + 24-bit ASCII text string (and 0xA9 isn't printable)
  *  either 32-bit ASCII text string
  */
-#define MP4_BOX_TYPE_ASCII() ( ((char*)&p_box->i_type)[0] != (char)0xA9 )
+#define MP4_BOX_TYPE_ASCII() ( ((unsigned char*)&p_box->i_type)[0] != 0xA9 )
 
 static inline uint32_t Get24bBE( const uint8_t *p )
 {
@@ -254,10 +254,10 @@ int MP4_Seek( stream_t *p_stream, uint64_t i_pos )
     uint64_t i_toread = i_pos - i_current_pos;
     if( i_toread == 0 )
         return VLC_SUCCESS;
-    else if( i_toread > (1<<17) )
+    if( i_toread > SSIZE_MAX ) // we can't read more than that
         return VLC_EGENERIC;
 
-    if( vlc_stream_Read( p_stream, NULL, i_toread ) != i_toread )
+    if( vlc_stream_Read( p_stream, NULL, i_toread ) != (ssize_t) i_toread )
         return VLC_EGENERIC;
     return VLC_SUCCESS;
 }
@@ -1680,9 +1680,9 @@ static uint64_t MP4_ReadLengthDescriptor( uint8_t **restrict bufp,
     do
     {
         if (unlikely(len == 0))
-            return -1; /* end of bit stream */
+            return UINT64_C(-1); /* end of bit stream */
         if (unlikely(value > (UINT64_MAX >> 7)))
-            return -1; /* integer overflow */
+            return UINT64_C(-1); /* integer overflow */
 
         b = *(buf++);
         len--;
@@ -2132,8 +2132,7 @@ static int MP4_ReadBox_ASF( stream_t *p_stream, MP4_Box_t *p_box )
 static void MP4_FreeBox_sbgp( MP4_Box_t *p_box )
 {
     MP4_Box_data_sbgp_t *p_sbgp = p_box->data.p_sbgp;
-    free( p_sbgp->entries.pi_sample_count );
-    free( p_sbgp->entries.pi_group_description_index );
+    free( p_sbgp->p_entries );
 }
 
 static int MP4_ReadBox_sbgp( stream_t *p_stream, MP4_Box_t *p_box )
@@ -2163,10 +2162,8 @@ static int MP4_ReadBox_sbgp( stream_t *p_stream, MP4_Box_t *p_box )
     if( p_sbgp->i_entry_count > i_read / (4 + 4) )
         p_sbgp->i_entry_count = i_read / (4 + 4);
 
-    p_sbgp->entries.pi_sample_count = vlc_alloc( p_sbgp->i_entry_count, sizeof(uint32_t) );
-    p_sbgp->entries.pi_group_description_index = vlc_alloc( p_sbgp->i_entry_count, sizeof(uint32_t) );
-
-    if( !p_sbgp->entries.pi_sample_count || !p_sbgp->entries.pi_group_description_index )
+    p_sbgp->p_entries = vlc_alloc( p_sbgp->i_entry_count, sizeof(*p_sbgp->p_entries) );
+    if( !p_sbgp->p_entries )
     {
         MP4_FreeBox_sbgp( p_box );
         MP4_READBOX_EXIT( 0 );
@@ -2174,8 +2171,8 @@ static int MP4_ReadBox_sbgp( stream_t *p_stream, MP4_Box_t *p_box )
 
     for( uint32_t i=0; i<p_sbgp->i_entry_count; i++ )
     {
-        MP4_GET4BYTES( p_sbgp->entries.pi_sample_count[i] );
-        MP4_GET4BYTES( p_sbgp->entries.pi_group_description_index[i] );
+        MP4_GET4BYTES( p_sbgp->p_entries[i].i_sample_count );
+        MP4_GET4BYTES( p_sbgp->p_entries[i].i_group_description_index );
     }
 
 #ifdef MP4_VERBOSE
@@ -2184,8 +2181,8 @@ static int MP4_ReadBox_sbgp( stream_t *p_stream, MP4_Box_t *p_box )
  #ifdef MP4_ULTRA_VERBOSE
     for (uint32_t i = 0; i < p_sbgp->i_entry_count; i++)
         msg_Dbg( p_stream, "\t samples %" PRIu32 " group %" PRIu32,
-                 p_sbgp->entries.pi_sample_count[i],
-                 p_sbgp->entries.pi_group_description_index[i] );
+                 p_sbgp->entries[i].i_sample_count,
+                 p_sbgp->entries[i].i_group_description_index );
  #endif
 #endif
 
@@ -3294,10 +3291,7 @@ static int MP4_ReadBox_stdp( stream_t *p_stream, MP4_Box_t *p_box )
 
 static void MP4_FreeBox_elst( MP4_Box_t *p_box )
 {
-    free( p_box->data.p_elst->i_segment_duration );
-    free( p_box->data.p_elst->i_media_time );
-    free( p_box->data.p_elst->i_media_rate_integer );
-    free( p_box->data.p_elst->i_media_rate_fraction );
+    free( p_box->data.p_elst->entries );
 }
 
 static int MP4_ReadBox_elst( stream_t *p_stream, MP4_Box_t *p_box )
@@ -3305,39 +3299,36 @@ static int MP4_ReadBox_elst( stream_t *p_stream, MP4_Box_t *p_box )
     uint32_t count;
 
     MP4_READBOX_ENTER( MP4_Box_data_elst_t, MP4_FreeBox_elst );
+    MP4_Box_data_elst_t *p_elst = p_box->data.p_elst;
 
-    MP4_GETVERSIONFLAGS( p_box->data.p_elst );
+    uint8_t i_version;
+    uint32_t dummy;
+    MP4_GET1BYTE( i_version );
+    MP4_GET3BYTES( dummy ); VLC_UNUSED(dummy);
+
+    if( i_version > 1 )
+        MP4_READBOX_EXIT( 0 );
+
     MP4_GET4BYTES( count );
-
     if( count == 0 )
         MP4_READBOX_EXIT( 1 );
 
-    uint32_t i_entries_max = i_read / ((p_box->data.p_elst->i_version == 1) ? 20 : 12);
+    uint32_t i_entries_max = i_read / ((i_version == 1) ? 20 : 12);
     if( count > i_entries_max )
         count = i_entries_max;
 
-    p_box->data.p_elst->i_segment_duration = vlc_alloc( count,
-                                                        sizeof(uint64_t) );
-    p_box->data.p_elst->i_media_time = vlc_alloc( count, sizeof(int64_t) );
-    p_box->data.p_elst->i_media_rate_integer = vlc_alloc( count,
-                                                          sizeof(uint16_t) );
-    p_box->data.p_elst->i_media_rate_fraction = vlc_alloc( count,
-                                                           sizeof(uint16_t) );
-    if( p_box->data.p_elst->i_segment_duration == NULL
-     || p_box->data.p_elst->i_media_time == NULL
-     || p_box->data.p_elst->i_media_rate_integer == NULL
-     || p_box->data.p_elst->i_media_rate_fraction == NULL )
-    {
+    p_elst->entries = vlc_alloc( count, sizeof(*p_elst->entries) );
+    if( !p_elst->entries )
         MP4_READBOX_EXIT( 0 );
-    }
-    p_box->data.p_elst->i_entry_count = count;
+
+    p_elst->i_entry_count = count;
 
     for( uint32_t i = 0; i < count; i++ )
     {
         uint64_t segment_duration;
         int64_t media_time;
 
-        if( p_box->data.p_elst->i_version == 1 )
+        if( i_version == 1 )
         {
             union { int64_t s; uint64_t u; } u;
 
@@ -3354,15 +3345,15 @@ static int MP4_ReadBox_elst( stream_t *p_stream, MP4_Box_t *p_box )
             media_time = u.s;
         }
 
-        p_box->data.p_elst->i_segment_duration[i] = segment_duration;
-        p_box->data.p_elst->i_media_time[i] = media_time;
-        MP4_GET2BYTES( p_box->data.p_elst->i_media_rate_integer[i] );
-        MP4_GET2BYTES( p_box->data.p_elst->i_media_rate_fraction[i] );
+        p_elst->entries[i].i_segment_duration = segment_duration;
+        p_elst->entries[i].i_media_time = media_time;
+        MP4_GET2BYTES( p_elst->entries[i].i_media_rate_integer );
+        MP4_GET2BYTES( p_elst->entries[i].i_media_rate_fraction );
     }
 
 #ifdef MP4_VERBOSE
     msg_Dbg( p_stream, "read box: \"elst\" entry-count %" PRIu32,
-             p_box->data.p_elst->i_entry_count );
+             p_elst->i_entry_count );
 #endif
     MP4_READBOX_EXIT( 1 );
 }
@@ -3931,7 +3922,7 @@ static int MP4_ReadBox_tref( stream_t *p_stream, MP4_Box_t *p_box )
 {
     /* skip header */
     size_t i_header = mp4_box_headersize( p_box );
-    if( vlc_stream_Read( p_stream, NULL, i_header ) != i_header )
+    if( vlc_stream_Read( p_stream, NULL, i_header ) != (ssize_t) i_header )
         return 0;
     /* read each reference atom with forced handler */
     uint64_t i_remain = p_box->i_size - 8;
@@ -4064,7 +4055,7 @@ static int MP4_ReadBox_meta( stream_t *p_stream, MP4_Box_t *p_box )
         return 0;
 
     /* skip over box header */
-    if( vlc_stream_Read( p_stream, NULL, i_headersize ) != i_headersize )
+    if( vlc_stream_Read( p_stream, NULL, i_headersize ) != (ssize_t) i_headersize )
         return 0;
 
     /* meta content starts with a 4 byte version/flags value (should be 0) */

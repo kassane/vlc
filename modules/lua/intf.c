@@ -38,11 +38,6 @@
 #include "vlc.h"
 #include "libs.h"
 
-/*****************************************************************************
- * Prototypes
- *****************************************************************************/
-static void *Run( void * );
-
 static const char * const ppsz_intf_options[] = { "intf", "config", NULL };
 
 /*****************************************************************************
@@ -181,7 +176,22 @@ static char *StripPasswords( const char *psz_config )
     return psz_log;
 }
 
-static const luaL_Reg p_reg[] = { { NULL, NULL } };
+static void *Run(void *data)
+{
+    vlc_thread_set_name("vlc-lua-intf");
+
+    intf_thread_t *p_intf = data;
+    intf_sys_t *p_sys = p_intf->p_sys;
+    lua_State *L = p_sys->L;
+
+    if (vlclua_dofile(VLC_OBJECT(p_intf), L, p_sys->psz_filename))
+    {
+        msg_Err(p_intf, "Error loading script %s: %s", p_sys->psz_filename,
+                lua_tostring(L, lua_gettop(L)));
+        lua_pop(L, 1);
+    }
+    return NULL;
+}
 
 static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
 {
@@ -243,6 +253,7 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     luaL_openlibs( L );
 
     /* register our functions */
+    static const luaL_Reg p_reg[] = { { NULL, NULL } };
     luaL_register_namespace( L, "vlc", p_reg );
 
     /* register submodules */
@@ -285,8 +296,7 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     {
         msg_Warn( p_intf, "Error while setting the module search path for %s",
                   p_sys->psz_filename );
-        lua_close( L );
-        goto error;
+        goto error_lua;
     }
 
     /*
@@ -358,8 +368,7 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
         {
             msg_Err( p_intf, "Couldn't find lua interface script \"cli\", "
                              "needed by telnet wrapper" );
-            lua_close( p_sys->L );
-            goto error;
+            goto error_lua;
         }
         lua_pushstring( L, wrapped_file );
         lua_setglobal( L, "wrapped_file" );
@@ -369,13 +378,12 @@ static int Start_LuaIntf( vlc_object_t *p_this, const char *name )
     p_sys->L = L;
 
     if( vlc_clone( &p_sys->thread, Run, p_intf ) )
-    {
-        vlclua_fd_cleanup( &p_sys->dtable );
-        lua_close( p_sys->L );
-        goto error;
-    }
+        goto error_lua;
     free( namebuf );
     return VLC_SUCCESS;
+error_lua:
+    vlclua_fd_cleanup( &p_sys->dtable );
+    lua_close( p_sys->L );
 error:
     free( p_sys->psz_filename );
     free( p_sys );
@@ -398,23 +406,6 @@ void Close_LuaIntf( vlc_object_t *p_this )
     free( p_sys->psz_filename );
     free( p_sys );
     vlc_LogDestroy( p_intf->obj.logger );
-}
-
-static void *Run( void *data )
-{
-    vlc_thread_set_name("vlc-lua-intf");
-
-    intf_thread_t *p_intf = data;
-    intf_sys_t *p_sys = p_intf->p_sys;
-    lua_State *L = p_sys->L;
-
-    if( vlclua_dofile( VLC_OBJECT(p_intf), L, p_sys->psz_filename ) )
-    {
-        msg_Err( p_intf, "Error loading script %s: %s", p_sys->psz_filename,
-                 lua_tostring( L, lua_gettop( L ) ) );
-        lua_pop( L, 1 );
-    }
-    return NULL;
 }
 
 int Open_LuaIntf( vlc_object_t *p_this )

@@ -16,31 +16,31 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
 import QtQuick 2.11
-import QtQuick.Controls 2.4
-import QtQuick.Layouts 1.11
-import QtQml.Models 2.2
+
 import org.videolan.medialib 0.1
 import org.videolan.vlc 0.1
 
 import "qrc:///util/" as Util
 import "qrc:///widgets/" as Widgets
 import "qrc:///main/" as MainInterface
+import "qrc:///util/Helpers.js" as Helpers
 import "qrc:///style/"
 
-FocusScope {
+MainInterface.MainViewLoader {
     id: root
 
     // Properties
 
-    //the index to "go to" when the view is loaded
-    property int initialIndex: 0
     property int gridViewMarginTop: VLCStyle.margin_large
-    property var gridViewRowX: MainCtx.gridView ? _currentView.rowX : undefined
+    property var gridViewRowX: Helpers.get(currentItem, "rowX", 0)
 
-    readonly property var currentIndex: _currentView.currentIndex
+    readonly property var currentIndex: Helpers.get(currentItem, "currentIndex", - 1)
 
-    property Component header: Item{}
-    readonly property Item headerItem: _currentView ? _currentView.headerItem : null
+    property Component header: Item {}
+    readonly property Item headerItem: Helpers.get(currentItem, "headerItem", null)
+
+    readonly property int contentLeftMargin: Helpers.get(currentItem, "contentLeftMargin", 0)
+    readonly property int contentRightMargin: Helpers.get(currentItem, "contentRightMargin", 0)
 
     property var sortModel: [
         { text: I18n.qtr("Alphabetic"),  criteria: "title"},
@@ -49,35 +49,15 @@ FocusScope {
         { text: I18n.qtr("Artist"),      criteria: "main_artist" },
     ]
 
-    // Aliases
-
-    property alias leftPadding: view.leftPadding
-    property alias rightPadding: view.rightPadding
-
-    property alias model: albumModelId
     property alias parentId: albumModelId.parentId
 
-    property alias _currentView: view.currentItem
+    model: albumModelId
 
-    onInitialIndexChanged:  resetFocus()
-    onModelChanged: resetFocus()
+    grid: gridComponent
+    list: tableComponent
+    emptyLabel: emptyLabelComponent
+
     onParentIdChanged: resetFocus()
-
-    function resetFocus() {
-        if (albumModelId.count === 0) {
-            return
-        }
-        var initialIndex = root.initialIndex
-        if (initialIndex >= albumModelId.count)
-            initialIndex = 0
-        selectionModel.select(model.index(initialIndex, 0), ItemSelectionModel.ClearAndSelect)
-        if (_currentView)
-            _currentView.positionViewAtIndex(initialIndex, ItemView.Contain)
-    }
-
-    function setCurrentItemFocus(reason) {
-        _currentView.setCurrentItemFocus(reason);
-    }
 
     function _actionAtIndex(index) {
         if (selectionModel.selectedIndexes.length > 1) {
@@ -87,30 +67,10 @@ FocusScope {
         }
     }
 
-    function _onNavigationCancel() {
-        if (_currentView.currentIndex <= 0) {
-            root.Navigation.defaultNavigationCancel()
-        } else {
-            _currentView.currentIndex = 0;
-            _currentView.positionViewAtIndex(0, ItemView.Contain)
-        }
-    }
-
-
     MLAlbumModel {
         id: albumModelId
+
         ml: MediaLib
-
-        onCountChanged: {
-            if (albumModelId.count > 0 && !selectionModel.hasSelection) {
-                root.resetFocus()
-            }
-        }
-    }
-
-    Util.SelectableDelegateModel {
-        id: selectionModel
-        model: albumModelId
     }
 
     Widgets.MLDragItem {
@@ -198,7 +158,6 @@ FocusScope {
             }
 
             Navigation.parentItem: root
-            Navigation.cancelAction: root._onNavigationCancel
 
             Connections {
                 target: contextMenu
@@ -215,18 +174,24 @@ FocusScope {
 
             readonly property int _nbCols: VLCStyle.gridColumnsForWidth(tableView_id.availableRowWidth)
 
-            model: albumModelId
-            selectionDelegateModel: selectionModel
-            headerColor: VLCStyle.colors.bg
-            onActionForSelection: _actionAtIndex(selection[0]);
-            Navigation.parentItem: root
-            section.property: "title_first_symbol"
-            header: root.header
-            dragItem: albumDragItem
-            rowHeight: VLCStyle.tableCoverRow_height
-            headerTopPadding: VLCStyle.margin_normal
+            property var _modelSmall: [{
+                size: Math.max(2, tableView_id._nbCols),
 
-            sortModel: [{
+                model: ({
+                    criteria: "title",
+
+                    subCriterias: [ "main_artist", "duration" ],
+
+                    text: I18n.qtr("Title"),
+
+                    headerDelegate: tableColumns.titleHeaderDelegate,
+                    colDelegate: tableColumns.titleDelegate,
+
+                    placeHolder: VLCStyle.noArtAlbumCover
+                })
+            }]
+
+            property var _modelMedium: [{
                 size: 2,
 
                 model: {
@@ -240,7 +205,7 @@ FocusScope {
                     placeHolder: VLCStyle.noArtAlbumCover
                 }
             }, {
-                size: Math.max(tableView_id._nbCols - 3, 1),
+                size: Math.max(1, tableView_id._nbCols - 3),
 
                 model: {
                     criteria: "main_artist",
@@ -260,7 +225,18 @@ FocusScope {
                 }
             }]
 
-            Navigation.cancelAction: root._onNavigationCancel
+            model: albumModelId
+            selectionDelegateModel: selectionModel
+            onActionForSelection: _actionAtIndex(selection[0]);
+            Navigation.parentItem: root
+            section.property: "title_first_symbol"
+            header: root.header
+            dragItem: albumDragItem
+            rowHeight: VLCStyle.tableCoverRow_height
+            headerTopPadding: VLCStyle.margin_normal
+
+            sortModel: (availableRowWidth < VLCStyle.colWidth(4)) ? _modelSmall
+                                                                  : _modelMedium
 
             onContextMenuButtonClicked: contextMenu.popup(selectionModel.selectedIndexes, globalMousePos)
             onRightClick: contextMenu.popup(selectionModel.selectedIndexes, globalMousePos)
@@ -268,6 +244,8 @@ FocusScope {
 
             Widgets.TableColumns {
                 id: tableColumns
+
+                showCriterias: (tableView_id.sortModel === tableView_id._modelSmall)
             }
 
             Connections {
@@ -286,32 +264,13 @@ FocusScope {
         }
     }
 
-    Widgets.StackViewExt {
-        id: view
+    Component {
+        id: emptyLabelComponent
 
-        anchors.fill: parent
-
-        focus: albumModelId.count !== 0
-
-        initialItem: MainCtx.gridView ? gridComponent : tableComponent
-
-        Connections {
-            target: MainCtx
-            onGridViewChanged: {
-                if (MainCtx.gridView)
-                    view.replace(gridComponent)
-                else
-                    view.replace(tableComponent)
-            }
+        EmptyLabelButton {
+            text: I18n.qtr("No albums found\nPlease try adding sources, by going to the Browse tab")
+            Navigation.parentItem: root
+            cover: VLCStyle.noArtAlbumCover
         }
-    }
-
-    EmptyLabelButton {
-        anchors.fill: parent
-        visible: !albumModelId.hasContent
-        focus: visible
-        text: I18n.qtr("No albums found\nPlease try adding sources, by going to the Browse tab")
-        Navigation.parentItem: root
-        cover: VLCStyle.noArtAlbumCover
     }
 }

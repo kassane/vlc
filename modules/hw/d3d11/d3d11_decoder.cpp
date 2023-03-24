@@ -123,7 +123,7 @@ static int DecodeFrame( decoder_t *p_dec, block_t *p_block )
         {
             msg_Err(p_dec, "Unknown texture format %d", outDesc.Format);
             block_Release( p_block );
-            return VLC_EGENERIC;
+            return VLCDEC_ECRITICAL;
         }
     }
 
@@ -134,13 +134,14 @@ static int DecodeFrame( decoder_t *p_dec, block_t *p_block )
         if (!p_sys->vctx)
         {
             block_Release( p_block );
-            return VLC_EGENERIC;
+            return VLCDEC_ECRITICAL;
         }
+        DxgiFormatMask( p_sys->output_format->formatTexture, &p_dec->fmt_out.video );
 
         if( decoder_UpdateVideoOutput( p_dec, p_sys->vctx ) )
         {
             block_Release( p_block );
-            return VLCDEC_SUCCESS;
+            return VLCDEC_ECRITICAL;
         }
     }
 
@@ -166,17 +167,23 @@ static int DecodeFrame( decoder_t *p_dec, block_t *p_block )
     assert(src_sys->texture[1] == nullptr);
 
     d3d11_decoder_device_t *dev_sys = GetD3D11OpaqueDevice(p_sys->dec_dev);
-    ComPtr<ID3D11Device1> d3d11VLC1;
-    dev_sys->d3d_dev.d3ddevice->QueryInterface(IID_GRAPHICS_PPV_ARGS(&d3d11VLC1));
-
-    picture_sys_d3d11_t *pic_sys = ActiveD3D11PictureSys(p_pic);
-
     ID3D11Texture2D* sharedTex;
-    hr = d3d11VLC1->OpenSharedResource1(pic_sys->sharedHandle, IID_GRAPHICS_PPV_ARGS(&sharedTex));
+    picture_sys_d3d11_t *pic_sys = ActiveD3D11PictureSys(p_pic);
+    if (pic_sys->ownHandle)
+    {
+        ComPtr<ID3D11Device1> d3d11VLC1;
+        dev_sys->d3d_dev.d3ddevice->QueryInterface(IID_GRAPHICS_PPV_ARGS(&d3d11VLC1));
+
+        hr = d3d11VLC1->OpenSharedResource1(pic_sys->sharedHandle, IID_GRAPHICS_PPV_ARGS(&sharedTex));
+    }
+    else
+    {
+        hr = dev_sys->d3d_dev.d3ddevice->OpenSharedResource(pic_sys->sharedHandle, IID_GRAPHICS_PPV_ARGS(&sharedTex));
+    }
     if (unlikely(FAILED(hr)))
     {
         block_Release( p_block );
-        return VLCDEC_SUCCESS;
+        return VLCDEC_ECRITICAL;
     }
 
     ID3D11Texture2D *srcTex = src_sys->texture[0];
@@ -283,6 +290,7 @@ int D3D11OpenBlockDecoder( vlc_object_t *obj )
             vlc_decoder_device_Release(dec_dev);
             return VLC_EGENERIC;
         }
+        DxgiFormatMask( p_sys->output_format->formatTexture, &p_dec->fmt_out.video );
 
         if( decoder_UpdateVideoOutput( p_dec, p_sys->vctx ) )
         {

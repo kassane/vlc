@@ -133,6 +133,13 @@ GLConvUpdate(const struct vlc_gl_interop *interop, uint32_t textures[],
                     (const char*)&dstDesc.Format, dstDesc.Format, hr);
             return VLC_EGENERIC;
         }
+
+        hr = IDirect3DDevice9Ex_PresentEx(d3d9_decoder->d3ddev.devex, NULL, NULL, NULL, NULL, D3DPRESENT_INTERVAL_IMMEDIATE);
+        if (FAILED(hr))
+        {
+            msg_Warn(interop->gl, "IDirect3DDevice9_Present failed. (0x%lX)", hr);
+            return VLC_EGENERIC;
+        }
     }
     else
     {
@@ -192,7 +199,7 @@ GLConvAllocateTextures(const struct vlc_gl_interop *interop, uint32_t textures[]
 static void
 GLConvClose(vlc_object_t *obj)
 {
-    struct vlc_gl_interop *interop = (void *)obj;
+    struct vlc_gl_interop *interop = container_of(obj, struct vlc_gl_interop, obj);
     struct glpriv *priv = interop->priv;
 
     if (priv->gl_handle_d3d)
@@ -226,10 +233,12 @@ static void SetupProcessorInput(struct vlc_gl_interop *interop, const video_form
     DXVAHD_STREAM_STATE_FRAME_FORMAT_DATA frame_format = { DXVAHD_FRAME_FORMAT_PROGRESSIVE };
     IDXVAHD_VideoProcessor_SetVideoProcessStreamState( sys->processor.proc, 0, DXVAHD_STREAM_STATE_FRAME_FORMAT, sizeof(frame_format), &frame_format );
 
-    DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE_DATA colorspace = { 0 };
-    colorspace.RGB_Range = fmt->color_range == COLOR_RANGE_FULL ? 0 : 1;
-    colorspace.YCbCr_xvYCC = fmt->color_range == COLOR_RANGE_FULL ? 1 : 0;
-    colorspace.YCbCr_Matrix = fmt->space == COLOR_SPACE_BT601 ? 0 : 1;
+    DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE_DATA colorspace = {
+        .Type = 0, // video, not graphics
+        .RGB_Range = fmt->color_range == COLOR_RANGE_FULL ? 0 : 1,
+        .YCbCr_xvYCC = fmt->color_range == COLOR_RANGE_FULL ? 1 : 0,
+        .YCbCr_Matrix = fmt->space == COLOR_SPACE_BT601 ? 0 : 1,
+    };
     IDXVAHD_VideoProcessor_SetVideoProcessStreamState( sys->processor.proc, 0, DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE, sizeof(colorspace), &colorspace );
 
     DXVAHD_STREAM_STATE_SOURCE_RECT_DATA srcRect;
@@ -284,8 +293,11 @@ static int InitRangeProcessor(struct vlc_gl_interop *interop, IDirect3DDevice9Ex
     DXVAHD_VPCAPS *capsList = NULL;
     IDXVAHD_Device *hd_device = NULL;
 
-    HRESULT (WINAPI *CreateDevice)(IDirect3DDevice9Ex *,const DXVAHD_CONTENT_DESC *,DXVAHD_DEVICE_USAGE,PDXVAHDSW_Plugin,IDXVAHD_Device **);
-    CreateDevice = (void *)GetProcAddress(sys->processor.dll, "DXVAHD_CreateDevice");
+#ifdef __MINGW64_VERSION_MAJOR
+    typedef HRESULT (WINAPI* PDXVAHD_CreateDevice)(IDirect3DDevice9Ex *,const DXVAHD_CONTENT_DESC *,DXVAHD_DEVICE_USAGE,PDXVAHDSW_Plugin,IDXVAHD_Device **);
+#endif
+    PDXVAHD_CreateDevice CreateDevice;
+    CreateDevice = (PDXVAHD_CreateDevice)GetProcAddress(sys->processor.dll, "DXVAHD_CreateDevice");
     if (CreateDevice == NULL)
     {
         msg_Err(interop, "Can't create HD device (not Windows 7+)");
@@ -387,11 +399,12 @@ static int InitRangeProcessor(struct vlc_gl_interop *interop, IDirect3DDevice9Ex
 
     SetupProcessorInput(interop, &interop->fmt_in, src_format);
 
-    DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE_DATA colorspace;
-    colorspace.Usage = 0; // playback
-    colorspace.RGB_Range = true ? 0 : 1;
-    colorspace.YCbCr_xvYCC = true ? 1 : 0;
-    colorspace.YCbCr_Matrix = false ? 0 : 1;
+    DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE_DATA colorspace = {
+        .Usage = 0, // playback
+        .RGB_Range = /* full range */true ? 0 : 1,
+        .YCbCr_xvYCC = /* full range */true ? 1 : 0,
+        .YCbCr_Matrix = /* BT601 colorspace */ false ? 0 : 1,
+    };
     hr = IDXVAHD_VideoProcessor_SetVideoProcessBltState( sys->processor.proc, DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE, sizeof(colorspace), &colorspace);
 
     return VLC_SUCCESS;
@@ -408,7 +421,7 @@ error:
 static int
 GLConvOpen(vlc_object_t *obj)
 {
-    struct vlc_gl_interop *interop = (void *) obj;
+    struct vlc_gl_interop *interop = container_of(obj, struct vlc_gl_interop, obj);
 
     if (interop->fmt_in.i_chroma != VLC_CODEC_D3D9_OPAQUE
      && interop->fmt_in.i_chroma != VLC_CODEC_D3D9_OPAQUE_10B)

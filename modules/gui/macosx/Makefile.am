@@ -1,3 +1,27 @@
+actool_verbose = $(actool_verbose_$(V))
+actool_verbose_ = $(actool_verbose__$(AM_DEFAULT_VERBOSITY))
+actool_verbose_0 = @echo "  ACTOOL  " $@;
+actool_verbose__0 = $(actool_verbose_0)
+
+# All content of the asset catalog should be listed below
+# so that it is properly rebuilt when its content changes.
+ASSET_CATALOG_DEPS = \
+	gui/macosx/Resources/Assets.xcassets/Contents.json \
+	gui/macosx/Resources/Assets.xcassets/VLCAccentColor.colorset/Contents.json
+
+gui/macosx/Resources/Assets.car: gui/macosx/Resources/Assets.xcassets $(ASSET_CATALOG_DEPS)
+	$(AM_V_at)$(MKDIR_P) "gui/macosx/Resources"
+	$(actool_verbose)$(ACTOOL) --errors --warnings --notices \
+	  --platform macosx --target-device mac --skip-app-store-deployment \
+	  --minimum-deployment-target 10.11 --output-format human-readable-text \
+	  --compile $(@D) $<
+
+if ENABLE_MACOSX_UI
+BUILT_SOURCES += gui/macosx/Resources/Assets.car
+endif
+
+EXTRA_DIST += $(ASSET_CATALOG_DEPS)
+
 SUFFIXES += .xib .nib
 
 xib_verbose = $(xib_verbose_$(V))
@@ -61,6 +85,10 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/imported/SPMediaKeyTap/SPMediaKeyTap.m \
 	gui/macosx/library/VLCInputItem.h \
 	gui/macosx/library/VLCInputItem.m \
+	gui/macosx/library/VLCInputNodePathControl.h \
+	gui/macosx/library/VLCInputNodePathControl.m \
+	gui/macosx/library/VLCInputNodePathControlItem.h \
+	gui/macosx/library/VLCInputNodePathControlItem.m \
 	gui/macosx/library/VLCLibraryCollectionViewDataSource.h \
 	gui/macosx/library/VLCLibraryCollectionViewDelegate.h \
 	gui/macosx/library/VLCLibraryCollectionViewDelegate.m \
@@ -100,8 +128,6 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/library/VLCLibraryUIUnits.m \
 	gui/macosx/library/VLCLibraryWindow.h \
 	gui/macosx/library/VLCLibraryWindow.m \
-	gui/macosx/library/VLCLibraryWindowAutohideToolbar.h \
-	gui/macosx/library/VLCLibraryWindowAutohideToolbar.m \
 	gui/macosx/library/VLCLibraryWindowController.h \
 	gui/macosx/library/VLCLibraryWindowController.m \
 	gui/macosx/library/video-library/VLCLibraryVideoViewController.h \
@@ -211,8 +237,6 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/playlist/VLCPlaylistController.m \
 	gui/macosx/playlist/VLCPlaylistDataSource.h \
 	gui/macosx/playlist/VLCPlaylistDataSource.m \
-	gui/macosx/playlist/VLCPlaylistImageCache.h \
-	gui/macosx/playlist/VLCPlaylistImageCache.m \
 	gui/macosx/playlist/VLCPlaylistItem.h \
 	gui/macosx/playlist/VLCPlaylistItem.m \
 	gui/macosx/playlist/VLCPlaylistMenuController.h \
@@ -247,8 +271,6 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/views/VLCDefaultValueSliderCell.m \
 	gui/macosx/views/VLCDragDropView.h \
 	gui/macosx/views/VLCDragDropView.m \
-	gui/macosx/views/VLCFSPanelDraggableView.h \
-	gui/macosx/views/VLCFSPanelDraggableView.m \
 	gui/macosx/views/VLCHUDOutlineView.h \
 	gui/macosx/views/VLCHUDOutlineView.m \
 	gui/macosx/views/VLCHUDTableCornerView.h \
@@ -317,10 +339,12 @@ libmacosx_plugin_la_SOURCES = \
 	gui/macosx/windows/mainwindow/VLCMainWindowControlsBar.m \
 	gui/macosx/windows/video/VLCAspectRatioRetainingVideoWindow.h \
 	gui/macosx/windows/video/VLCAspectRatioRetainingVideoWindow.m \
-	gui/macosx/windows/video/VLCDetachedVideoWindow.h \
-	gui/macosx/windows/video/VLCDetachedVideoWindow.m \
-	gui/macosx/windows/video/VLCFSPanelController.h \
-	gui/macosx/windows/video/VLCFSPanelController.m \
+	gui/macosx/windows/video/VLCFullVideoViewWindow.h \
+	gui/macosx/windows/video/VLCFullVideoViewWindow.m \
+	gui/macosx/windows/video/VLCMainVideoViewController.h \
+	gui/macosx/windows/video/VLCMainVideoViewController.m \
+	gui/macosx/windows/video/VLCMainVideoViewOverlayView.h \
+	gui/macosx/windows/video/VLCMainVideoViewOverlayView.m \
 	gui/macosx/windows/video/VLCVideoOutputProvider.h \
 	gui/macosx/windows/video/VLCVideoOutputProvider.m \
 	gui/macosx/windows/video/VLCVideoWindowCommon.h \
@@ -340,7 +364,6 @@ libmacosx_plugin_la_XIB_SOURCES = \
 	gui/macosx/UI/Bookmarks.xib \
 	gui/macosx/UI/ConvertAndSave.xib \
 	gui/macosx/UI/CoreDialogs.xib \
-	gui/macosx/UI/DetachedVideoWindow.xib \
 	gui/macosx/UI/ErrorPanel.xib \
 	gui/macosx/UI/Help.xib \
 	gui/macosx/UI/LogMessageWindow.xib \
@@ -357,6 +380,7 @@ libmacosx_plugin_la_XIB_SOURCES = \
 	gui/macosx/UI/VLCLibraryCollectionViewAudioGroupSupplementaryDetailView.xib \
 	gui/macosx/UI/VLCLibraryCollectionViewMediaItemSupplementaryDetailView.xib \
 	gui/macosx/UI/VLCLibrarySongTableCellView.xib \
+	gui/macosx/UI/VLCMainVideoView.xib \
 	gui/macosx/UI/VLCMediaSourceCollectionViewItem.xib \
 	gui/macosx/UI/VLCMediaSourceDeviceCollectionViewItem.xib \
 	gui/macosx/UI/VLCInformationWindow.xib \

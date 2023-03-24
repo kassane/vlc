@@ -58,8 +58,8 @@ static const struct {
 
 #if ((__IPHONE_OS_VERSION_MAX_ALLOWED && __IPHONE_OS_VERSION_MAX_ALLOWED < 150000) || (__TV_OS_MAX_VERSION_ALLOWED && __TV_OS_MAX_VERSION_ALLOWED < 150000))
 
-extern NSString *const AVAudioSessionSpatialAudioEnabledKey = @"AVAudioSessionSpatializationEnabledKey";
-extern NSString *const AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification = @"AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification";
+NSString *const AVAudioSessionSpatialAudioEnabledKey = @"AVAudioSessionSpatializationEnabledKey";
+NSString *const AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification = @"AVAudioSessionSpatialPlaybackCapabilitiesChangedNotification";
 
 @interface AVAudioSession (iOS15RoutingConfiguration)
 - (BOOL)setSupportsMultichannelContent:(BOOL)inValue error:(NSError **)outError;
@@ -335,21 +335,29 @@ avas_GetPortType(audio_output_t *p_aout, enum port_type *pport_type)
     return VLC_SUCCESS;
 }
 
-struct role2policy
+struct API_AVAILABLE(ios(11.0))
+role2policy
 {
     char role[sizeof("accessibility")];
     AVAudioSessionRouteSharingPolicy policy;
 };
 
-static int role2policy_cmp(const void *key, const void *val)
+static int API_AVAILABLE(ios(11.0))
+role2policy_cmp(const void *key, const void *val)
 {
     const struct role2policy *entry = val;
     return strcmp(key, entry->role);
 }
 
-static AVAudioSessionRouteSharingPolicy
+static AVAudioSessionRouteSharingPolicy API_AVAILABLE(ios(11.0))
 GetRouteSharingPolicy(audio_output_t *p_aout)
 {
+#if __IPHONEOS_VERSION_MAX_ALLOWED < 130000
+    AVAudioSessionRouteSharingPolicy AVAudioSessionRouteSharingPolicyLongFormAudio =
+        AVAudioSessionRouteSharingPolicyLongForm;
+    AVAudioSessionRouteSharingPolicy AVAudioSessionRouteSharingPolicyLongFormVideo =
+        AVAudioSessionRouteSharingPolicyLongForm;
+#endif
     /* LongFormAudio by default */
     AVAudioSessionRouteSharingPolicy policy = AVAudioSessionRouteSharingPolicyLongFormAudio;
     AVAudioSessionRouteSharingPolicy video_policy;
@@ -398,23 +406,22 @@ avas_SetActive(audio_output_t *p_aout, bool active, NSUInteger options)
 
     if (active)
     {
-        AVAudioSessionCategory category = AVAudioSessionCategoryPlayback;
-        AVAudioSessionMode mode = AVAudioSessionModeMoviePlayback;
-        AVAudioSessionRouteSharingPolicy policy = GetRouteSharingPolicy(p_aout);
-
         if (@available(iOS 11.0, tvOS 11.0, *))
         {
-            ret = [instance setCategory:category
-                                   mode:mode
+            AVAudioSessionRouteSharingPolicy policy = GetRouteSharingPolicy(p_aout);
+
+            ret = [instance setCategory:AVAudioSessionCategoryPlayback
+                                   mode:AVAudioSessionModeMoviePlayback
                      routeSharingPolicy:policy
                                 options:0
                                   error:&error];
         }
         else
         {
-            ret = [instance setCategory:category
+            ret = [instance setCategory:AVAudioSessionCategoryPlayback
                                   error:&error];
-            ret = ret && [instance setMode:mode error:&error];
+            ret = ret && [instance setMode:AVAudioSessionModeMoviePlayback
+                                     error:&error];
             /* Not AVAudioSessionRouteSharingPolicy on older devices */
         }
         if (@available(iOS 15.0, tvOS 15.0, *)) {

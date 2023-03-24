@@ -281,7 +281,7 @@ SPrefsCatList::SPrefsCatList( qt_intf_t *_p_intf, QWidget *_parent ) :
 #undef ADD_CATEGORY
 
     SPrefsInterface->setChecked( true );
-    layout->setMargin( 0 );
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing( 1 );
 
     setSizePolicy(QSizePolicy::MinimumExpanding,QSizePolicy::Preferred);
@@ -371,7 +371,7 @@ SPrefsPanel::SPrefsPanel( qt_intf_t *_p_intf, QWidget *_parent,
 
     QVBoxLayout *panel_layout = new QVBoxLayout();
     QWidget *panel = new QWidget();
-    panel_layout->setMargin( 3 );
+    panel_layout->setContentsMargins(3, 3, 3, 3);
 
     // Title Label
     QLabel *panel_label = new QLabel;
@@ -667,7 +667,7 @@ SPrefsPanel::SPrefsPanel( qt_intf_t *_p_intf, QWidget *_parent,
                 free( dvd_discpath );
                 free( vcd_discpath );
             }
-#ifndef _WIN32
+#if !defined( _WIN32 ) && !defined( __OS2__)
             QStringList DVDDeviceComboBoxStringList = QStringList();
             DVDDeviceComboBoxStringList
                     << "dvd*" << "scd*" << "sr*" << "sg*" << "cd*";

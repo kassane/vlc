@@ -125,15 +125,17 @@ static int Open( vlc_object_t *p_this )
     const int width  = var_InheritInteger( p_filter, "goom-width" );
     const int height = var_InheritInteger( p_filter, "goom-height" );
 
+    video_format_Init(&p_thread->fmt, VLC_CODEC_RGB32);
     p_thread->fmt.i_width = p_thread->fmt.i_visible_width = width;
     p_thread->fmt.i_height = p_thread->fmt.i_visible_height = height;
-    p_thread->fmt.i_chroma = VLC_CODEC_RGB32;
     p_thread->fmt.i_sar_num = p_thread->fmt.i_sar_den = 1;
+    p_thread->fmt.color_range = COLOR_RANGE_FULL;
 
     /* TODO: the number of picture is arbitrary for now. */
     p_thread->pool = picture_pool_NewFromFormat(&p_thread->fmt, 3);
     if (p_thread->pool == NULL)
     {
+        video_format_Clean(&p_thread->fmt);
         free(p_thread);
         return VLC_ENOMEM;
     }
@@ -143,6 +145,7 @@ static int Open( vlc_object_t *p_this )
     {
         msg_Err( p_filter, "no suitable vout module" );
         picture_pool_Release(p_thread->pool);
+        video_format_Clean(&p_thread->fmt);
         free( p_thread );
         return VLC_EGENERIC;
     }
@@ -164,6 +167,7 @@ static int Open( vlc_object_t *p_this )
         msg_Err( p_filter, "cannot launch goom thread" );
         vout_Close( p_thread->p_vout );
         picture_pool_Release(p_thread->pool);
+        video_format_Clean(&p_thread->fmt);
         free( p_thread );
         return VLC_EGENERIC;
     }
@@ -301,6 +305,12 @@ static void *Thread( void *p_thread_data )
 
     p_plugin_info = goom_init( p_thread->fmt.i_width, p_thread->fmt.i_height );
 
+    plane_t src;
+    src.i_lines = p_thread->fmt.i_height;
+    src.i_pitch = p_thread->fmt.i_width * 4;
+    src.i_visible_lines = p_thread->fmt.i_height;
+    src.i_visible_pitch = p_thread->fmt.i_width * 4;
+
     for( ;; )
     {
         uint32_t  *plane;
@@ -338,8 +348,8 @@ static void *Thread( void *p_thread_data )
         if( unlikely(p_pic == NULL) )
             continue;
 
-        memcpy( p_pic->p[0].p_pixels, plane,
-                p_thread->fmt.i_width * p_thread->fmt.i_height * 4 );
+        src.p_pixels = (uint8_t*)plane;
+        plane_CopyPixels(&p_pic->p[0], &src);
 
         p_pic->date = date_Get( &i_pts ) + GOOM_DELAY;
         p_pic->b_progressive = true;
@@ -373,6 +383,7 @@ static void Close( filter_t *p_filter )
     }
 
     picture_pool_Release(p_thread->pool);
+    video_format_Clean(&p_thread->fmt);
     free( p_thread );
 }
 

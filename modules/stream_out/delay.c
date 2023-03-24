@@ -66,28 +66,41 @@ static void Del( sout_stream_t *p_stream, void *id )
     sout_StreamIdDel( p_stream->p_next, id );
 }
 
+static void block_ChainApplyDelay( block_t *chain, vlc_tick_t delay )
+{
+    for ( block_t *frame = chain; frame != NULL; frame = frame->p_next )
+    {
+        if ( frame->i_dts != VLC_TICK_INVALID )
+            frame->i_dts += delay;
+        if ( frame->i_pts != VLC_TICK_INVALID )
+            frame->i_pts += delay;
+    }
+}
+
 static int Send( sout_stream_t *p_stream, void *id, block_t *p_buffer )
 {
     sout_stream_sys_t *p_sys = (sout_stream_sys_t *)p_stream->p_sys;
 
-    if ( id == p_sys->id )
-    {
-        block_t *p_block = p_buffer;
-        while ( p_block != NULL )
-        {
-            if ( p_block->i_pts != VLC_TICK_INVALID )
-                p_block->i_pts += p_sys->i_delay;
-            if ( p_block->i_dts != VLC_TICK_INVALID )
-                p_block->i_dts += p_sys->i_delay;
-            p_block = p_block->p_next;
-        }
-    }
+    /**
+     * Positive delay is added to the selected ES timestamps while negative
+     * delay is added to every other ES except the selected one. This avoids
+     * any negative timestamps.
+     */
+    if ( p_sys->i_delay < 0 && id != p_sys->id )
+        block_ChainApplyDelay( p_buffer, -p_sys->i_delay );
+    else if ( p_sys->i_delay > 0 && id == p_sys->id )
+        block_ChainApplyDelay( p_buffer, p_sys->i_delay );
 
     return sout_StreamIdSend( p_stream->p_next, id, p_buffer );
 }
 
+static void SetPCR( sout_stream_t *stream, vlc_tick_t pcr )
+{
+    sout_StreamSetPCR( stream->p_next, pcr );
+}
+
 static const struct sout_stream_operations ops = {
-    Add, Del, Send, NULL, NULL, NULL,
+    Add, Del, Send, NULL, NULL, SetPCR,
 };
 
 static const char *ppsz_sout_options[] = {

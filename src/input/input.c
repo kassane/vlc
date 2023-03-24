@@ -594,16 +594,17 @@ static void MainLoopStatistics( input_thread_t *p_input )
     es_out_SetTimes( priv->p_es_out, f_position, i_time, priv->normal_time,
                      i_length );
 
-    struct input_stats_t new_stats;
-    if( priv->stats != NULL )
-        input_stats_Compute( priv->stats, &new_stats );
+    if (priv->stats != NULL)
+    {
+        struct input_stats_t new_stats;
+        input_stats_Compute(priv->stats, &new_stats);
 
-    vlc_mutex_lock( &priv->p_item->lock );
-    if( priv->stats != NULL )
+        vlc_mutex_lock(&priv->p_item->lock);
         *priv->p_item->p_stats = new_stats;
-    vlc_mutex_unlock( &priv->p_item->lock );
+        vlc_mutex_unlock(&priv->p_item->lock);
 
-    input_SendEventStatistics( p_input, &new_stats );
+        input_SendEventStatistics(p_input, &new_stats);
+    }
 }
 
 /**
@@ -1829,7 +1830,6 @@ static void ControlUpdateRenderer( input_thread_t *p_input, bool b_enable )
         input_priv(p_input)->p_sout = NULL;
     }
 }
-#endif
 
 static void ControlInsertDemuxFilter( input_thread_t* p_input, const char* psz_demux_chain )
 {
@@ -1840,6 +1840,8 @@ static void ControlInsertDemuxFilter( input_thread_t* p_input, const char* psz_d
     else if ( psz_demux_chain != NULL )
         msg_Dbg(p_input, "Failed to create demux filter %s", psz_demux_chain);
 }
+
+#endif // ENABLE_SOUT
 
 void input_SetProgramId(input_thread_t *input, int group_id)
 
@@ -2705,7 +2707,7 @@ static int InputSourceInit( input_source_t *in, input_thread_t *p_input,
     if( in->p_demux == NULL )
     {
         if( !b_in_can_fail && !input_Stopped( p_input ) )
-            vlc_dialog_display_error( p_input, _("Your input can't be opened"),
+            vlc_dialog_display_error( p_input, _("Your media can't be opened"),
                                       _("VLC is unable to open the MRL '%s'."
                                       " Check the log for details."), psz_mrl );
         if( in->p_slave_es_out )

@@ -31,6 +31,8 @@
 #import "extensions/NSString+Helpers.h"
 
 #import "library/VLCLibraryWindow.h"
+#import "library/VLCInputNodePathControl.h"
+#import "library/VLCInputNodePathControlItem.h"
 #import "library/VLCLibraryNavigationStack.h"
 #import "library/VLCInputItem.h"
 #import "library/VLCLibraryCollectionViewSupplementaryElementView.h"
@@ -99,7 +101,9 @@ NSString *VLCMediaSourceTableViewCellIdentifier = @"VLCMediaSourceTableViewCellI
 
     self.homeButton.action = @selector(homeButtonAction:);
     self.homeButton.target = self;
-    self.pathControl.URL = nil;
+    [self.pathControl clearInputNodePathControlItems];
+    self.pathControl.action = @selector(pathControlAction:);
+    self.pathControl.target = self;
 
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
@@ -119,7 +123,7 @@ NSString *VLCMediaSourceTableViewCellIdentifier = @"VLCMediaSourceTableViewCellI
 
 - (void)loadMediaSources
 {
-    self.pathControl.URL = nil;
+    [self.pathControl clearInputNodePathControlItems];
     NSArray *mediaSources;
     if (self.mediaSourceMode == VLCMediaSourceModeLAN) {
         mediaSources = [VLCMediaSourceProvider listOfLocalMediaSources];
@@ -377,6 +381,8 @@ referenceSizeForHeaderInSection:(NSInteger)section
         NSLog(@"Received bad node or media source, could not configure child data media source");
         return;
     }
+
+    [mediaSource preparseInputNodeWithinTree:node];
     
     VLCMediaSourceDataSource *newChildDataSource = [[VLCMediaSourceDataSource alloc] init];
     
@@ -402,9 +408,13 @@ referenceSizeForHeaderInSection:(NSInteger)section
     }
     
     _childDataSource = childDataSource;
-    
-    VLCInputItem *nodeInput = childDataSource.nodeToDisplay.inputItem;
-    self.pathControl.URL = [NSURL URLWithString:[NSString stringWithFormat:@"vlc://%@", [nodeInput.name stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]]];
+
+    if (_mediaSourceMode == VLCMediaSourceModeLAN) {
+        VLCInputNode *node = childDataSource.nodeToDisplay;
+        VLCInputNodePathControlItem *nodePathItem = [[VLCInputNodePathControlItem alloc] initWithInputNode:node];
+
+        [self.pathControl appendInputNodePathControlItem:nodePathItem];
+    }
     self.pathControl.hidden = NO;
     
     [_childDataSource setupViews];
@@ -426,6 +436,7 @@ referenceSizeForHeaderInSection:(NSInteger)section
     self.tableView.delegate = self;
 
     _childDataSource = nil;
+    [self.pathControl clearInputNodePathControlItems];
 
     [self reloadData];
 }
@@ -434,8 +445,22 @@ referenceSizeForHeaderInSection:(NSInteger)section
 {
     [self returnHome];
     VLCLibraryNavigationStack *mainNavStack = [VLCMain sharedInstance].libraryWindow.navigationStack;
-    if(sender != mainNavStack && sender != self) {
-        [[[[VLCMain sharedInstance] libraryWindow] navigationStack] appendCurrentLibraryState];
+    [mainNavStack clear];
+}
+
+- (void)pathControlAction:(id)sender
+{
+    if (_pathControl.clickedPathItem == nil || _childDataSource == nil) {
+        return;
+    }
+
+    NSPathControlItem *selectedItem = _pathControl.clickedPathItem;
+    NSString *itemNodeMrl = selectedItem.image.name;
+
+    VLCInputNodePathControlItem *matchingItem = [_pathControl.inputNodePathControlItems objectForKey:itemNodeMrl];
+    if (matchingItem != nil) {
+        _childDataSource.nodeToDisplay = matchingItem.inputNode;
+        [_pathControl clearPathControlItemsAheadOf:selectedItem];
     }
 }
 
@@ -458,10 +483,6 @@ referenceSizeForHeaderInSection:(NSInteger)section
     _childDataSource.gridViewMode = _gridViewMode;
 
     [self setCurrentViewMode];
-
-    if(sender != [[[VLCMain sharedInstance] libraryWindow] navigationStack]) {
-        [[[[VLCMain sharedInstance] libraryWindow] navigationStack] appendCurrentLibraryState];
-    }
 }
 
 #pragma mark - VLCMediaSource Delegation

@@ -37,6 +37,10 @@ FadingEdgeListView {
 
     property bool keyNavigationWraps: false
 
+    // NOTE: Fading is disabled by default, 'enableBeginningFade' and 'enableEndFade' take
+    // precedence over 'enableFade'.
+    property bool enableFade: false
+
     // Private
 
     property bool _keyPressed: false
@@ -75,6 +79,8 @@ FadingEdgeListView {
 
     activeFocusOnTab: true
 
+    backgroundColor: theme.bg.primary
+
     //key navigation is reimplemented for item selection
     keyNavigationEnabled: false
 
@@ -88,13 +94,13 @@ FadingEdgeListView {
     section.criteria: ViewSection.FullString
     section.delegate: sectionHeading
 
-    disableBeginningFade: (dragAutoScrollHandler.scrollingDirection
-                           ===
-                           Util.ViewDragAutoScrollHandler.Backward)
+    enableBeginningFade: (enableFade && dragAutoScrollHandler.scrollingDirection
+                                        !==
+                                        Util.ViewDragAutoScrollHandler.Backward)
 
-    disableEndFade: (dragAutoScrollHandler.scrollingDirection
-                     ===
-                     Util.ViewDragAutoScrollHandler.Forward)
+    enableEndFade: (enableFade && dragAutoScrollHandler.scrollingDirection
+                                  !==
+                                  Util.ViewDragAutoScrollHandler.Forward)
 
     Accessible.role: Accessible.List
 
@@ -227,6 +233,12 @@ FadingEdgeListView {
         }
     }
 
+    readonly property ColorContext colorContext: ColorContext {
+        id: theme
+        colorSet: ColorContext.View
+    }
+
+
     Component {
         id: sectionHeading
 
@@ -236,13 +248,13 @@ FadingEdgeListView {
             Text {
                 text: section
                 font.pixelSize: VLCStyle.fontSize_xlarge
-                color: VLCStyle.colors.accent
+                color: theme.accent
             }
 
             Rectangle {
                 width: parent.width
                 height: 1
-                color: VLCStyle.colors.textDisabled
+                color: theme.border
             }
         }
     }

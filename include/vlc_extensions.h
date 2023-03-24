@@ -29,10 +29,18 @@
 /* Structures */
 typedef struct extensions_manager_sys_t extensions_manager_sys_t;
 typedef struct extensions_manager_t extensions_manager_t;
-typedef struct extension_sys_t extension_sys_t;
+struct vlc_player_t;
+struct vlc_logger;
 
 /** Extension descriptor: name, title, author, ... */
 typedef struct extension_t {
+    void *p_sys;              /**< Reserved for the manager module */
+
+    /**
+     * The LibVLC logger to use for the extension.
+     */
+    struct vlc_logger *logger;
+
     /* Below, (ro) means read-only for the GUI */
     char *psz_name;           /**< Real name of the extension (ro) */
 
@@ -44,8 +52,6 @@ typedef struct extension_t {
     char *psz_shortdescription; /**< Short description (eg. 1 line)  (ro) */
     char *p_icondata;         /**< Embedded data for the icon (ro) */
     int   i_icondata_size;    /**< Size of that data */
-
-    extension_sys_t *p_sys;   /**< Reserved for the manager module */
 } extension_t;
 
 /** Extensions manager object */
@@ -55,12 +61,13 @@ struct extensions_manager_t
 
     module_t *p_module;                /**< Extensions manager module */
     void *p_sys;              /**< Reserved for the module */
+    struct vlc_player_t *player;
 
     DECL_ARRAY(extension_t*) extensions; /**< Array of extension descriptors */
     vlc_mutex_t lock;                  /**< A lock for the extensions array */
 
     /** Control, see extension_Control */
-    int ( *pf_control ) ( extensions_manager_t*, int, va_list );
+    int (*pf_control)(extensions_manager_t*, int, extension_t *, va_list);
 };
 
 /* Control commands */
@@ -85,11 +92,12 @@ enum
  * Every GUI -> extension command will go through this function.
  **/
 static inline int extension_Control( extensions_manager_t *p_mgr,
-                                     int i_control, ... )
+                                     int i_control,
+                                     extension_t *ext, ... )
 {
     va_list args;
-    va_start( args, i_control );
-    int i_ret = p_mgr->pf_control( p_mgr, i_control, args );
+    va_start(args, ext);
+    int i_ret = p_mgr->pf_control(p_mgr, i_control, ext, args);
     va_end( args );
     return i_ret;
 }

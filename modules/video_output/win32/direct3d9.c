@@ -145,6 +145,9 @@ typedef struct vout_display_sys_t
     HINSTANCE               hxdll;      /* handle of the opened d3d9x dll */
     IDirect3DPixelShader9*  d3dx_shader;
 
+    UINT                    texture_width;
+    UINT                    texture_height;
+
     // scene objects
     IDirect3DTexture9       *sceneTexture;
     IDirect3DVertexBuffer9  *sceneVertexBuffer;
@@ -360,21 +363,19 @@ static int Direct3D9ImportPicture(vout_display_t *vd,
     };
     RECT texture_visible_rect = {
         .left   = 0,
-        .right  = vd->source->i_visible_width,
+        .right  = sys->texture_width,
         .top    = 0,
-        .bottom = vd->source->i_visible_height,
+        .bottom = sys->texture_height,
     };
     // On nVidia & AMD, StretchRect will fail if the visible size isn't even.
     // When copying the entire buffer, the margin end up being blended in the actual picture
     // on nVidia (regardless of even/odd dimensions)
-    if (texture_visible_rect.right & 1)
+    if (source_visible_rect.right & 1)
     {
-        texture_visible_rect.right++;
         source_visible_rect.right++;
     }
-    if (texture_visible_rect.bottom & 1)
+    if (source_visible_rect.bottom & 1)
     {
-        texture_visible_rect.bottom++;
         source_visible_rect.bottom++;
     }
 
@@ -543,13 +544,13 @@ static int Direct3D9CreateScene(vout_display_t *vd, const video_format_t *fmt)
     IDirect3DDevice9        *d3ddev = sys->d3d9_device->d3ddev.dev;
     HRESULT hr;
 
-    UINT width  = fmt->i_visible_width;
-    UINT height = fmt->i_visible_height;
+    sys->texture_width  = fmt->i_visible_width;
+    sys->texture_height = fmt->i_visible_height;
     // On nVidia & AMD, StretchRect will fail if the visible size isn't even.
     // When copying the entire buffer, the margin end up being blended in the actual picture
     // on nVidia (regardless of even/odd dimensions)
-    if (height & 1) height++;
-    if (width  & 1) width++;
+    if (sys->texture_height & 1) sys->texture_height++;
+    if (sys->texture_width  & 1) sys->texture_width++;
 
     /*
      * Create a texture for use when rendering a scene
@@ -557,8 +558,8 @@ static int Direct3D9CreateScene(vout_display_t *vd, const video_format_t *fmt)
      * which would usually be a RGB format
      */
     hr = IDirect3DDevice9_CreateTexture(d3ddev,
-                                        width,
-                                        height,
+                                        sys->texture_width,
+                                        sys->texture_height,
                                         1,
                                         D3DUSAGE_RENDERTARGET,
                                         sys->BufferFormat,
@@ -571,7 +572,7 @@ static int Direct3D9CreateScene(vout_display_t *vd, const video_format_t *fmt)
     }
 
 #ifndef NDEBUG
-    msg_Dbg(vd, "Direct3D created texture: %ix%i", width, height);
+    msg_Dbg(vd, "Direct3D created texture: %ix%i", sys->texture_width, sys->texture_height);
 #endif
 
     /*
@@ -1419,10 +1420,12 @@ static void SetupProcessorInput(vout_display_t *vd, const video_format_t *fmt, c
     DXVAHD_STREAM_STATE_FRAME_FORMAT_DATA frame_format = { DXVAHD_FRAME_FORMAT_PROGRESSIVE };
     IDXVAHD_VideoProcessor_SetVideoProcessStreamState( sys->processor.proc, 0, DXVAHD_STREAM_STATE_FRAME_FORMAT, sizeof(frame_format), &frame_format );
 
-    DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE_DATA colorspace = { 0 };
-    colorspace.RGB_Range = fmt->color_range == COLOR_RANGE_FULL ? 0 : 1;
-    colorspace.YCbCr_xvYCC = fmt->color_range == COLOR_RANGE_FULL ? 1 : 0;
-    colorspace.YCbCr_Matrix = fmt->space == COLOR_SPACE_BT601 ? 0 : 1;
+    DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE_DATA colorspace = {
+        .Type = 0, // video, not graphics
+        .RGB_Range = fmt->color_range == COLOR_RANGE_FULL ? 0 : 1,
+        .YCbCr_xvYCC = fmt->color_range == COLOR_RANGE_FULL ? 1 : 0,
+        .YCbCr_Matrix = fmt->space == COLOR_SPACE_BT601 ? 0 : 1,
+    };
     IDXVAHD_VideoProcessor_SetVideoProcessStreamState( sys->processor.proc, 0, DXVAHD_STREAM_STATE_INPUT_COLOR_SPACE, sizeof(colorspace), &colorspace );
 
     DXVAHD_STREAM_STATE_SOURCE_RECT_DATA srcRect;
@@ -1478,8 +1481,11 @@ static int InitRangeProcessor(vout_display_t *vd, const d3d9_format_t *d3dfmt,
     DXVAHD_VPCAPS *capsList = NULL;
     IDXVAHD_Device *hd_device = NULL;
 
-    HRESULT (WINAPI *CreateDevice)(IDirect3DDevice9Ex *,const DXVAHD_CONTENT_DESC *,DXVAHD_DEVICE_USAGE,PDXVAHDSW_Plugin,IDXVAHD_Device **);
-    CreateDevice = (void *)GetProcAddress(sys->processor.dll, "DXVAHD_CreateDevice");
+#ifdef __MINGW64_VERSION_MAJOR
+    typedef HRESULT (WINAPI* PDXVAHD_CreateDevice)(IDirect3DDevice9Ex *,const DXVAHD_CONTENT_DESC *,DXVAHD_DEVICE_USAGE,PDXVAHDSW_Plugin,IDXVAHD_Device **);
+#endif
+    PDXVAHD_CreateDevice CreateDevice;
+    CreateDevice = (PDXVAHD_CreateDevice)GetProcAddress(sys->processor.dll, "DXVAHD_CreateDevice");
     if (CreateDevice == NULL)
     {
         msg_Err(vd, "Can't create HD device (not Windows 7+)");
@@ -1581,11 +1587,12 @@ static int InitRangeProcessor(vout_display_t *vd, const d3d9_format_t *d3dfmt,
 
     SetupProcessorInput(vd, vd->source, d3dfmt);
 
-    DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE_DATA colorspace;
-    colorspace.Usage = 0; // playback
-    colorspace.RGB_Range = render_out->full_range ? 0 : 1;
-    colorspace.YCbCr_xvYCC = render_out->full_range ? 1 : 0;
-    colorspace.YCbCr_Matrix = render_out->colorspace == libvlc_video_colorspace_BT601 ? 0 : 1;
+    DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE_DATA colorspace = {
+        .Usage = 0, // playback
+        .RGB_Range = render_out->full_range ? 0 : 1,
+        .YCbCr_xvYCC = render_out->full_range ? 1 : 0,
+        .YCbCr_Matrix = render_out->colorspace == libvlc_video_colorspace_BT601 ? 0 : 1,
+    };
     hr = IDXVAHD_VideoProcessor_SetVideoProcessBltState( sys->processor.proc, DXVAHD_BLT_STATE_OUTPUT_COLOR_SPACE, sizeof(colorspace), &colorspace);
 
     return VLC_SUCCESS;

@@ -26,7 +26,7 @@
 
 #include <QObject>
 #include <QMutex>
-#include <QMainWindow>
+#include <QWindow>
 
 #include <xcb/xcb.h>
 #include <xcb/render.h>
@@ -38,9 +38,12 @@
 #include "qt.hpp"
 
 #include "compositor_x11_utils.hpp"
+#include "compositor_common.hpp"
+#include "compositor_accessibility.hpp"
 
 class QWidget;
 class QSocketNotifier;
+class QAccessibleInterface;
 
 namespace vlc {
 
@@ -144,11 +147,11 @@ public:
     QSocketNotifier* m_socketNotifier = nullptr;
 };
 
-class CompositorX11RenderWindow : public QMainWindow
+class CompositorX11RenderWindow : public DummyRenderWindow, public AccessibleRenderWindow
 {
     Q_OBJECT
 public:
-    explicit CompositorX11RenderWindow(qt_intf_t* p_intf, xcb_connection_t* conn, bool useCSD, QWidget* parent = nullptr);
+    explicit CompositorX11RenderWindow(qt_intf_t* p_intf, xcb_connection_t* conn, bool useCSD, QWindow* parent = nullptr);
     ~CompositorX11RenderWindow();
 
     bool init();
@@ -156,12 +159,8 @@ public:
     bool startRendering();
     void stopRendering();
 
-    bool eventFilter(QObject *, QEvent *event) override;
-
     void setVideoPosition(const QPoint& position);
     void setVideoSize(const QSize& size);
-
-    inline QWindow* getWindow() const { return m_window; }
 
     inline bool hasAcrylic() const { return m_hasAcrylic; }
 
@@ -171,6 +170,8 @@ public:
     void enableVideoWindow();
     void disableVideoWindow();
 
+    QQuickWindow* getOffscreenWindow() const override;
+
 signals:
     void windowSizeChanged(const QSize& newSize);
     void requestUIRefresh();
@@ -179,20 +180,25 @@ signals:
     void visiblityChanged(bool visible);
     void registerVideoWindow(unsigned int xid);
 
+protected:
+    //override from QWindow
+    void exposeEvent(QExposeEvent *) override;
+    void resizeEvent(QResizeEvent *) override;
+    void showEvent(QShowEvent *) override;
+    void hideEvent(QHideEvent *) override;
+
 private:
     void resetClientPixmaps();
 
+
     qt_intf_t* m_intf = nullptr;
     xcb_connection_t* m_conn = nullptr;
-
-    QWidget* m_stable = nullptr;
 
     QThread* m_renderThread = nullptr;
     RenderTask* m_renderTask = nullptr;
     X11DamageObserver* m_damageObserver = nullptr;
     QMutex m_pictureLock;
 
-    QWindow* m_window = nullptr;
     xcb_window_t m_wid = 0;
 
     bool m_hasAcrylic = false;

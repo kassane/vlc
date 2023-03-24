@@ -28,10 +28,17 @@ import "qrc:///style/"
 T.Pane {
     id: root
 
-    property VLCColors colors: VLCStyle.colors
-    property color color: colors.accent
     property bool paintOnly: false
+
+    readonly property color sliderColor: {
+        var theme = volControl.colorContext
+        return (volControl.position > _fullvolpos) ? theme.fg.negative : theme.fg.primary
+    }
+
     readonly property var _player: paintOnly ? ({ muted: false, volume: .5 }) : Player
+    readonly property int _maxvol: MainCtx.maxVolume
+    readonly property real _fullvolpos: 100 / _maxvol
+    readonly property real _maxvolpos: _maxvol / 100
 
     implicitWidth: Math.max(background ? background.implicitWidth : 0, contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(background ? background.implicitHeight : 0, contentHeight + topPadding + bottomPadding)
@@ -65,24 +72,20 @@ T.Pane {
                 else
                     VLCIcons.volume_high
             text: I18n.qtr("Mute")
-            color: colors.buttonText
-            colorHover: colors.buttonTextHover
-            colorFocus: colors.bgFocus
             onClicked: Player.muted = !Player.muted
 
             Navigation.parentItem: root
             Navigation.rightItem: volControl
         }
 
-        T.Slider {
+        Widgets.Slider {
             id: volControl
 
+            // FIXME: use VLCStyle
             implicitWidth: VLCStyle.dp(100, VLCStyle.scale)
-            implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                                    (handle ? handle.implicitHeight : 0) + topPadding + bottomPadding)
 
             Layout.fillHeight: true
-            Layout.margins: VLCStyle.dp(5, VLCStyle.scale)
+            Layout.margins: VLCStyle.margin_xsmall
 
             property bool _inhibitPlayerVolumeUpdate: false
 
@@ -94,9 +97,17 @@ T.Pane {
 
             property bool _keyPressed: false
 
+            color: root.sliderColor
+
             from: 0
-            to: maxvolpos
+            to: root._maxvolpos
             opacity: _player.muted ? 0.5 : 1
+
+            enabled: !root.paintOnly // disables event handling depending on this
+
+            valueText: function (value) {
+                return Math.round(value * 100) + "%"
+            }
 
             Accessible.name: I18n.qtr("Volume")
 
@@ -172,11 +183,6 @@ T.Pane {
 
             Keys.priority: Keys.BeforeItem
 
-            readonly property color sliderColor: (volControl.position > fullvolpos) ? colors.volmax : root.color
-            readonly property int maxvol: MainCtx.maxVolume
-            readonly property real fullvolpos: 100 / maxvol
-            readonly property real maxvolpos: maxvol / 100
-
             onValueChanged: {
                 if (paintOnly)
                     return
@@ -186,90 +192,54 @@ T.Pane {
                 }
             }
 
-            Loader {
-                id: volumeTooltip
-                active: !paintOnly
+            Rectangle{
+                id: tickmark
 
-                sourceComponent: Widgets.PointingTooltip {
-                    visible: sliderMouseArea.pressed || volControl.pressed || volControl.hovered || volControl.visualFocus
+                parent: volControl.background
 
-                    text: Math.round(Player.volume * 100) + "%"
+                x : parent.width * root._fullvolpos
+                width: VLCStyle.dp(1, VLCStyle.scale)
+                height: parent.height
+                radius: VLCStyle.dp(2, VLCStyle.scale)
 
-                    pos: Qt.point(handle.x + handle.width / 2, handle.y)
+                // NOTE: This shouldn't be visible when the volume stops before a 100.
+                visible: (root._maxvol > 100)
 
-                    colors: root.colors
-                }
-            }
+                // FIXME: tick mark is not visible when it's over slider
+                color: root.sliderColor
 
-            background: Rectangle {
-                id: sliderBg
-                x: volControl.leftPadding
-                y: volControl.topPadding + volControl.availableHeight / 2 - height / 2
-                implicitWidth: parent.width
-                implicitHeight: VLCStyle.dp(4, VLCStyle.scale)
-                height: implicitHeight
-                width: volControl.availableWidth
-                radius: VLCStyle.dp(4, VLCStyle.scale)
-                color: colors.volsliderbg
+                // NOTE: This is a helper to select the default volume when clicking on the
+                //       tickmark. We apply a higher clamp value to achieve that behavior on
+                //       the Slider.
+                MouseArea {
+                    anchors.fill: parent
 
-                Rectangle {
-                    id: filled
-                    width: volControl.visualPosition * sliderBg.width
-                    height: parent.height
-                    radius: VLCStyle.dp(4, VLCStyle.scale)
-                    color: root.color
-                }
-                Rectangle{
-                    id: tickmark
-                    x : parent.width * volControl.fullvolpos
-                    width: VLCStyle.dp(1, VLCStyle.scale)
-                    height: parent.height
-                    radius: VLCStyle.dp(2, VLCStyle.scale)
+                    anchors.margins: -(VLCStyle.dp(4, VLCStyle.scale))
 
-                    // NOTE: This shouldn't be visible when the volume stops before a 100.
-                    visible: (volControl.maxvol > 100)
+                    onPressed: {
+                        mouse.accepted = false
 
-                    color: root.color
+                        if (mouse.modifiers === Qt.ShiftModifier)
+                            return
 
-                    // NOTE: This is a helper to select the default volume when clicking on the
-                    //       tickmark. We apply a higher clamp value to achieve that behavior on
-                    //       the Slider.
-                    MouseArea {
-                        anchors.fill: parent
-
-                        anchors.margins: -(VLCStyle.dp(4, VLCStyle.scale))
-
-                        onPressed: {
-                            mouse.accepted = false
-
-                            if (mouse.modifiers === Qt.ShiftModifier)
-                                return
-
-                            volControl._clamp = 0.1
-                        }
+                        volControl._clamp = 0.1
                     }
                 }
             }
 
-            handle: Rectangle {
-                id: handle
-                x: volControl.leftPadding + volControl.visualPosition * (volControl.availableWidth - width)
-                y: volControl.topPadding + volControl.availableHeight / 2 - height / 2
-
-                implicitWidth: VLCStyle.dp(8, VLCStyle.scale)
-                implicitHeight: implicitWidth
-                radius: width * 0.5
-                visible: (paintOnly || volControl.hovered || volControl.activeFocus)
-                color: volControl.sliderColor
-            }
-
             MouseArea {
                 id: sliderMouseArea
+
                 anchors.fill: parent
 
                 acceptedButtons: (Qt.LeftButton | Qt.RightButton)
 
                 onPressed: {
+                    if (root.paintOnly) {
+                        mouse.accepted = true
+                        return
+                    }
+
                     volControl._shiftPressed = (mouse.modifiers === Qt.ShiftModifier)
 
                     if (mouse.button === Qt.LeftButton) {
@@ -326,7 +296,7 @@ T.Pane {
                 function adjustVolume(mouse) {
                     mouse.accepted = true
 
-                    var pos = mouse.x * volControl.maxvolpos / width
+                    var pos = mouse.x * root._maxvolpos / width
 
                     if (pos < 0.25)
                         volControl.value = 0

@@ -98,10 +98,6 @@ vlc_include_dirs = include_directories(list_inc_dirs)
 
 if host_system == 'darwin'
     add_languages('objc', native: false)
-    add_project_arguments('-mmacosx-version-min=10.11',
-        language: ['c', 'cpp', 'objc'])
-    add_project_link_arguments('-mmacosx-version-min=10.11',
-        language: ['c', 'cpp', 'objc'])
 endif
 
 #
@@ -193,11 +189,10 @@ if (get_option('x11')
     .disable_auto_if(host_system in ['darwin', 'windows'])
     .allowed())
     x11_dep = dependency('x11', required: get_option('x11'))
-    if not x11_dep.found()
-        cdata.set('X_DISPLAY_MISSING', 1)
-    endif
 else
     x11_dep = disabler()
+endif
+if not x11_dep.found()
     cdata.set('X_DISPLAY_MISSING', 1)
 endif
 
@@ -205,7 +200,7 @@ endif
 # Check for headers
 #
 
-check_headers = [
+check_c_headers = [
     ['arpa/inet.h'],
     ['threads.h'],
     ['netinet/tcp.h'],
@@ -229,18 +224,34 @@ check_headers = [
     ['X11/Xlib.h'],
     ['xlocale.h'],
     ['zlib.h'],
-    ['dcomp.h'],
     ['wordexp.h'],
     ['GL/wglew.h',
         { 'prefix' : ['#include <windows.h>', '#include <GL/glew.h>'],
           'args' : [contrib_inc_args] }],
 ]
 
-foreach header : check_headers
+check_cpp_headers = [
+    ['dcomp.h',
+        { 'prefix' : ['#include <windows.h>'],
+          'args' : [contrib_inc_args]}],
+]
+
+foreach header : check_c_headers
     header_kwargs = header.get(1, {})
     # TODO: Once we require meson 1.0, drop the array join here
     # See: https://github.com/mesonbuild/meson/pull/11099
     if cc.check_header(header[0],
+                       prefix: '\n'.join(header_kwargs.get('prefix', [])),
+                       args: header_kwargs.get('args', []))
+        cdata.set('HAVE_' + header[0].underscorify().to_upper(), 1)
+    endif
+endforeach
+
+foreach header : check_cpp_headers
+    header_kwargs = header.get(1, {})
+    # TODO: Once we require meson 1.0, drop the array join here
+    # See: https://github.com/mesonbuild/meson/pull/11099
+    if cpp.check_header(header[0],
                        prefix: '\n'.join(header_kwargs.get('prefix', [])),
                        args: header_kwargs.get('args', []))
         cdata.set('HAVE_' + header[0].underscorify().to_upper(), 1)
@@ -269,6 +280,13 @@ else
     have_ios = false
     have_tvos = false
     have_osx = false
+endif
+
+if have_osx
+    add_project_arguments('-mmacosx-version-min=10.11',
+        language: ['c', 'cpp', 'objc'])
+    add_project_link_arguments('-mmacosx-version-min=10.11',
+        language: ['c', 'cpp', 'objc'])
 endif
 
 
@@ -540,7 +558,6 @@ check_functions = [
     ['open_memstream',   '#include <stdio.h>'],
     ['pipe2',            '#include <unistd.h>'],
     ['posix_fadvise',    '#include <fcntl.h>'],
-    ['stricmp',          '#include <string.h>'],
     ['strcoll',          '#include <string.h>'],
     ['wordexp',          '#include <wordexp.h>'],
 

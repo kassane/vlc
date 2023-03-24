@@ -599,18 +599,18 @@ static const struct input_preparser_callbacks_t preparseCallbacks = {
         char *psz_url = input_item_GetURI(_vlcInputItem);
         if (psz_url) {
             char *psz_path = vlc_uri2path(psz_url);
-            NSString *path = toNSStr(psz_path);
+            if (psz_path) {
+                NSString *path = toNSStr(psz_path);
+                free(psz_path);
+                image = [NSImage quickLookPreviewForLocalPath:path
+                                                     withSize:size];
 
-            free(psz_url);
-            free(psz_path);
-
-            image = [NSImage quickLookPreviewForLocalPath:path
-                                                 withSize:size];
-
-            if (!image) {
-                image = [[NSWorkspace sharedWorkspace] iconForFile:path];
-                image.size = size;
+                if (!image) {
+                    image = [[NSWorkspace sharedWorkspace] iconForFile:path];
+                    image.size = size;
+                }
             }
+            free(psz_url);
         }
     }
 
@@ -618,6 +618,36 @@ static const struct input_preparser_callbacks_t preparseCallbacks = {
         image = [NSImage imageNamed: @"noart.png"];
     }
     return image;
+}
+
+- (void)moveToTrash
+{
+    if (self.isStream) {
+        return;
+    }
+    
+    NSURL *pathUrl = [NSURL URLWithString:self.path];
+    if (pathUrl == nil) {
+        return;
+    }
+
+    [NSFileManager.defaultManager trashItemAtURL:pathUrl
+                                resultingItemURL:nil
+                                           error:nil];
+}
+
+- (void)revealInFinder
+{
+    if (self.isStream) {
+        return;
+    }
+
+    NSURL *pathUrl = [NSURL URLWithString:self.path];
+    if (pathUrl == nil) {
+        return;
+    }
+
+    [NSWorkspace.sharedWorkspace activateFileViewerSelectingURLs:@[pathUrl]];
 }
 
 @end

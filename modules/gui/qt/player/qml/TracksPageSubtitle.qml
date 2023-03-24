@@ -60,7 +60,7 @@ TracksPage {
 
             text: I18n.qtr("Subtitle synchronization")
 
-            color: "white"
+            color: root.colorContext.fg.primary
         }
 
         RowLayout {
@@ -75,10 +75,10 @@ TracksPage {
 
                 text: I18n.qtr("Primary subtitle delay")
 
-                color: "white"
+                color: root.colorContext.fg.primary
             }
 
-            Widgets.TransparentSpinBox {
+            Widgets.SpinBoxExt {
                 id: spinBoxA
 
                 property bool update: false
@@ -87,6 +87,7 @@ TracksPage {
 
                 stepSize: 50
                 from: -10000
+                to: 10000
 
                 textFromValue: root.textFromValueA
                 valueFromText: root.valueFromTextA
@@ -146,10 +147,10 @@ TracksPage {
 
                 text: I18n.qtr("Secondary subtitle delay")
 
-                color: "white"
+                color: root.colorContext.fg.primary
             }
 
-            Widgets.TransparentSpinBox {
+            Widgets.SpinBoxExt {
                 id: spinBoxB
 
                 property bool update: false
@@ -158,6 +159,7 @@ TracksPage {
 
                 stepSize: 50
                 from: -10000
+                to: 10000
 
                 textFromValue: root.textFromValueA
                 valueFromText: root.valueFromTextA
@@ -216,10 +218,10 @@ TracksPage {
 
                 text: I18n.qtr("Subtitle Speed")
 
-                color: "white"
+                color: root.colorContext.fg.primary
             }
 
-            Widgets.TransparentSpinBox {
+            Widgets.SpinBoxExt {
                 id: spinBoxC
 
                 property bool update: false
@@ -227,6 +229,8 @@ TracksPage {
                 Layout.preferredWidth: VLCStyle.dp(128, VLCStyle.scale)
 
                 stepSize: 1
+                from: 0
+                to: 100
 
                 textFromValue: root.textFromValueB
                 valueFromText: root.valueFromTextB
